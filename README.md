@@ -30,7 +30,7 @@ Run the following commands in your shell:
 
 ```sh
 # clone the repo
-git clone https://github.com/geneman/altdg
+git clone https://github.com/altdg/bulk_mapper
 
 # create and activate a virtual environment
 cd altdg
