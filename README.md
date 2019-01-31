@@ -86,7 +86,7 @@ A CSV output file will be created automatically with the same path as the input 
 ### Merchant mapper
 
 Maps strings from transactional purchase text (e.g. credit card transactions) to structured company information.
-> More details in https://developer.altdg.com/docs#domain-mapper
+> More details in https://developer.altdg.com/docs#merchant-mapper
 
 ```sh
 python -m adg_api_bulkMapper -e merchants sample-merchants.txt -k "12345"
