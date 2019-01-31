@@ -33,7 +33,7 @@ Run the following commands in your shell:
 git clone https://github.com/altdg/bulk_mapper
 
 # create and activate a virtual environment
-cd altdg
+cd bulk_mapper
 python -m venv env
 source env/bin/activate
 
