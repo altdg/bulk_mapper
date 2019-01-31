@@ -91,6 +91,11 @@ Maps strings from transactional purchase text (e.g. credit card transactions) to
 ```sh
 python -m adg_api_bulkMapper -e merchants sample-merchants.txt -k "12345"
 ```
+`12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
+
+A CSV output file will be created automatically with the same path as the input file but prepending the current date and time.
+
+[sample-merchants.txt](sample-merchants.txt) is a sample list of domains we included in our repo.
 
 ### Command arguments (options)
 
