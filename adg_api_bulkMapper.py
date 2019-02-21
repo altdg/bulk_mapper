@@ -198,6 +198,7 @@ class Mapper:
             'Ticker',
             'Exchange',
             'Majority Owner',
+            'FIGI',
             'Related Entity 1 Name',
             'Related Entity 1 Score',
             'Related Entity 2 Name',
@@ -235,7 +236,7 @@ class Mapper:
                 alternatives = result.get('Alternative Company Matches', [])
 
                 non_changing_keys = ['Original Input', 'Ticker', 'Exchange',
-                                     'Company Name', 'Confidence Level', 'Confidence']
+                                     'Company Name', 'Confidence Level', 'Confidence', 'FIGI']
                 csv_row = {
                     **{key: value for key, value in result.items() if key in non_changing_keys},
                     'Date & Time': date_time,
