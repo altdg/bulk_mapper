@@ -19,16 +19,17 @@ TODO: Handle all errors gracefully and provide informative messages (as specific
 TODO: out_file CSV should preserve order of inputs in in_file TXT
 TODO: out_file CSV should contain the cleaned domain names. Check those to decide re-processing too.
 """
-
+import json
 import csv
 import datetime
-import json
 import logging
 import os
 import requests
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from math import ceil
 from typing import List
+from math import sqrt
+from joblib import Parallel, delayed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(f'adg.{__name__}')
@@ -131,7 +132,7 @@ class Mapper:
             or empty list if request failed
         """
         payload = json.dumps(inputs)
-
+        print(payload)
         headers = {
             'Accept': "application/json",
             'Content-Type': "application/json",
@@ -150,13 +151,13 @@ class Mapper:
 
             except Exception as ex:
                 error = f'API request error: {ex}. ' \
-                        f'Please contact info@altdg.com for help if this problem persists.'
+                    f'Please contact info@altdg.com for help if this problem persists.'
                 logger.debug(error)
                 continue
 
             if not response.ok:
                 error = f'API response error: {response.status_code} {response.reason} for inputs {inputs}. ' \
-                        f'Please contact info@altdg.com for help if this problem persists.'
+                    f'Please contact info@altdg.com for help if this problem persists.'
                 logger.debug(error)
                 continue
 
@@ -225,12 +226,10 @@ class Mapper:
             logger.debug(f'Wrote headers to {self.out_file_location}')
 
         n_chunks = ceil(len(raw_inputs) / self.inputs_per_request)
-        for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
-            logger.info(f'{i+1} / {n_chunks}: {chunk}')
+        list_json_response = Parallel(n_jobs=-1)(delayed(self.query_api)([i]) for i in raw_inputs)
+        for one_json_response in list_json_response:
 
-            json_response = self.query_api(chunk)
-
-            for result in json_response:
+            for result in one_json_response:
                 aliases = result.get('Aliases', [])
                 related = result.get('Related Entities', [])
                 alternatives = result.get('Alternative Company Matches', [])
