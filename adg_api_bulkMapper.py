@@ -21,20 +21,21 @@ TODO: out_file CSV should contain the cleaned domain names. Check those to decid
 """
 import json
 import csv
-import datetime
 import logging
 import os
 import requests
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from math import ceil
 from typing import List
-from math import sqrt
 from joblib import Parallel, delayed
+import datetime
+import time
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(f'adg.{__name__}')
 
-MAX_INPUTS_PER_QUERY = 1
+MAX_INPUTS_PER_QUERY = 5
 N_REQUEST_RETRIES = 2
 TIMEOUT_PER_ITEM = 60
 
@@ -43,7 +44,6 @@ def _chunks(l, n):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]
-
 
 class Mapper:
     API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
@@ -86,15 +86,11 @@ class Mapper:
         Returns: list of raw inputs
         """
         with open(self.in_file_location, 'r', encoding=self.ENCODING) as in_file:
-            result = in_file.readlines()
+            raw_inputs = in_file.readlines()
 
-        # remove dupes and empty strings; strip inputs
-        result = set([line.strip() for line in result]) - {''}
-        result = list(result)
+        logger.info(f"Number of input strings in ingested file: {len(raw_inputs)}")
 
-        logger.info(f"Number of input strings in ingested file: {len(result)}")
-
-        return result
+        return raw_inputs
 
     def _load_processed_inputs(self) -> List[str]:
         """
@@ -133,10 +129,12 @@ class Mapper:
         """
         payload = json.dumps(inputs)
         print(payload)
+        print(datetime.datetime.now())
         headers = {
             'Accept': "application/json",
             'Content-Type': "application/json",
             'User-Agent': 'https://github.com/geneman/altdg',
+            'X-Configurations':'[{"CACHE_ERS": False}]'
         }
 
         timeout = len(inputs) * self.timeout
@@ -178,9 +176,30 @@ class Mapper:
             processed_inputs = self._load_processed_inputs()
             if len(processed_inputs):
                 logger.info(f'Loaded {len(processed_inputs)} results a previous run.')
+            num_processed_inputs = len(processed_inputs)
+            raw_inputs = raw_inputs[num_processed_inputs:]
 
-            if processed_inputs:
-                raw_inputs = [rawin for rawin in raw_inputs if rawin not in processed_inputs]
+        n_chunks = ceil(len(raw_inputs) / self.inputs_per_request)
+
+        num_threads = self.inputs_per_request
+        for i, chunk in enumerate(_chunks(raw_inputs,self.inputs_per_request)):
+            shoud_we_restart = 1
+            api_timeout_max_tries = 0
+            while (shoud_we_restart and api_timeout_max_tries < 4):
+                start = time.time()
+                list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row]) for one_row in chunk)
+                end = time.time()
+                print(end - start)
+
+                for one_json_response in list_json_response:
+                    if "API response error: 504 Gateway Time-out" in one_json_response[0]['Company Name']:
+                        num_threads = num_threads - 1
+                        api_timeout_max_tries = +1
+                    else:
+                        shoud_we_restart = 0
+                        self.write_csv(one_json_response)
+
+    def write_csv(self, one_json_response):
 
         # File handling
         date_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
@@ -225,37 +244,33 @@ class Mapper:
             csv_output.flush()
             logger.debug(f'Wrote headers to {self.out_file_location}')
 
-        n_chunks = ceil(len(raw_inputs) / self.inputs_per_request)
-        list_json_response = Parallel(n_jobs=-1)(delayed(self.query_api)([i]) for i in raw_inputs)
-        for one_json_response in list_json_response:
+        for result in one_json_response:
+            aliases = result.get('Aliases', [])
+            related = result.get('Related Entities', [])
+            alternatives = result.get('Alternative Company Matches', [])
 
-            for result in one_json_response:
-                aliases = result.get('Aliases', [])
-                related = result.get('Related Entities', [])
-                alternatives = result.get('Alternative Company Matches', [])
+            non_changing_keys = ['Original Input', 'Ticker', 'Exchange',
+                                 'Company Name', 'Confidence Level', 'Confidence', 'FIGI']
+            csv_row = {
+                **{key: value for key, value in result.items() if key in non_changing_keys},
+                'Date & Time': date_time,
+                'Alias 1': aliases[0] if aliases else None,
+                'Alias 2': aliases[1] if len(aliases) > 1 else None,
+                'Alias 3': aliases[2] if len(aliases) > 2 else None,
+                'Related Entity 1 Name': related[0]['Name'] if related else None,
+                'Related Entity 1 Score': related[0]['Closeness Score'] if related else None,
+                'Related Entity 2 Name': related[1]['Name'] if len(related) > 1 else None,
+                'Related Entity 2 Score': related[1]['Closeness Score'] if len(related) > 1 else None,
+                'Related Entity 3 Name': related[2]['Name'] if len(related) > 2 else None,
+                'Related Entity 3 Score': related[2]['Closeness Score'] if len(related) > 2 else None,
+                'Majority Owner': result.get('Majority Owner'),
+                'Alt Company': alternatives[0] if alternatives else None,
+            }
 
-                non_changing_keys = ['Original Input', 'Ticker', 'Exchange',
-                                     'Company Name', 'Confidence Level', 'Confidence', 'FIGI']
-                csv_row = {
-                    **{key: value for key, value in result.items() if key in non_changing_keys},
-                    'Date & Time': date_time,
-                    'Alias 1': aliases[0] if aliases else None,
-                    'Alias 2': aliases[1] if len(aliases) > 1 else None,
-                    'Alias 3': aliases[2] if len(aliases) > 2 else None,
-                    'Related Entity 1 Name': related[0]['Name'] if related else None,
-                    'Related Entity 1 Score': related[0]['Closeness Score'] if related else None,
-                    'Related Entity 2 Name': related[1]['Name'] if len(related) > 1 else None,
-                    'Related Entity 2 Score': related[1]['Closeness Score'] if len(related) > 1 else None,
-                    'Related Entity 3 Name': related[2]['Name'] if len(related) > 2 else None,
-                    'Related Entity 3 Score': related[2]['Closeness Score'] if len(related) > 2 else None,
-                    'Majority Owner': result.get('Majority Owner'),
-                    'Alt Company': alternatives[0] if alternatives else None,
-                }
+            writer.writerow(csv_row)
+            csv_output.flush()
 
-                writer.writerow(csv_row)
-                csv_output.flush()
-
-                logger.debug(f'Wrote results for {result["Original Input"]}')
+            logger.debug(f'Wrote results for {result["Original Input"]}')
 
         logger.info(f'Wrote results to {self.out_file_location}')
         logger.info('Process complete')
@@ -277,8 +292,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--input_no', type=int, default=1, dest='inputs_per_request',
-                        help=f'Number of inputs to process per API request. Default: {1} ')
+    parser.add_argument('-n', '--input_no', type=int, default=5, dest='inputs_per_request',
+                        help=f'Number of inputs to process per API request. Default: {5} ')
     parser.add_argument('-r', '--retries', type=int, default=N_REQUEST_RETRIES, dest='retries',
                         help=f'Number of retries per domain group. Default: {N_REQUEST_RETRIES}')
     parser.add_argument('-t', '--timeout', type=int, default=TIMEOUT_PER_ITEM, dest='timeout',
