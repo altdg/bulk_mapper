@@ -35,7 +35,7 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(f'adg.{__name__}')
 
-MAX_INPUTS_PER_QUERY = 5
+MAX_INPUTS_PER_QUERY = 20
 N_REQUEST_RETRIES = 2
 TIMEOUT_PER_ITEM = 60
 
@@ -195,14 +195,16 @@ class Mapper:
                     if "API response error: 504 Gateway Time-out" in one_json_response[0]['Company Name']:
                         num_threads = num_threads - 1
                         api_timeout_max_tries = +1
+                        shoud_we_restart = 1
+                        break
                     else:
-                        shoud_we_restart = 0
                         self.write_csv(one_json_response)
+                        shoud_we_restart = 0
 
     def write_csv(self, one_json_response):
 
         # File handling
-        date_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
+
         if os.path.dirname(self.out_file_location):
             os.makedirs(os.path.dirname(self.out_file_location), exist_ok=True)
         file_exists = os.path.isfile(self.out_file_location)
@@ -229,6 +231,7 @@ class Mapper:
             'Alt Company 2',
         ]
 
+        date_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
         csv_output = open(self.out_file_location, 'a', newline='', encoding=self.ENCODING)
         writer = csv.DictWriter(
             csv_output,
@@ -292,8 +295,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--input_no', type=int, default=5, dest='inputs_per_request',
-                        help=f'Number of inputs to process per API request. Default: {5} ')
+    parser.add_argument('-n', '--input_no', type=int, default=20, dest='inputs_per_request',
+                        help=f'Number of inputs to process per API request. Default: {20} ')
     parser.add_argument('-r', '--retries', type=int, default=N_REQUEST_RETRIES, dest='retries',
                         help=f'Number of retries per domain group. Default: {N_REQUEST_RETRIES}')
     parser.add_argument('-t', '--timeout', type=int, default=TIMEOUT_PER_ITEM, dest='timeout',
