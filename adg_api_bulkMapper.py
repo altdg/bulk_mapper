@@ -185,7 +185,7 @@ class Mapper:
         for i, chunk in enumerate(_chunks(raw_inputs,self.inputs_per_request)):
             shoud_we_restart = 1
             api_timeout_max_tries = 0
-            while (shoud_we_restart and api_timeout_max_tries < 4):
+            while (shoud_we_restart and num_threads > 0):
                 start = time.time()
                 list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row]) for one_row in chunk)
                 end = time.time()
