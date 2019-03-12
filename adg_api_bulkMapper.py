@@ -186,55 +186,49 @@ class Mapper:
             num_processed_inputs = len(processed_inputs)
             raw_inputs = raw_inputs[num_processed_inputs:]
 
-        n_chunks = ceil(len(raw_inputs) / self.inputs_per_request)
-
         num_threads = self.inputs_per_request
-        init_num_treads = num_threads
-        same_num_thread_counter = 0
-
-        for i, chunk in enumerate(_chunks(raw_inputs,self.inputs_per_request)):
-            if same_num_thread_counter == self.N_const_thread:
-                num_threads += 1
-                same_num_thread_counter = 0
-
-            shoud_we_restart = 1
-            inner_chunk_loop_counter = 0
-            num_reduction = (num_threads - 4)//2 + 3
+        chunks_without_timeout_streak = 0
+        for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
+            num_reduction = (num_threads - 4) // 2 + 3
             num_retries_one_thread = 10
             max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
 
             logger.info(f"Number of threads in the chunk: {num_threads}")
 
-            while shoud_we_restart and num_threads > 0 and inner_chunk_loop_counter < max_timeout_retry:
+            def has_timeout(company_name):
+                timeout_messages = ["API response error: 504 Gateway Time-out",
+                                    "Read timed out",
+                                    "API response error: 503 Service Unavailable: Back-end server is at capacity"]
+                return any(msg in company_name for msg in timeout_messages)
 
+            list_json_response = []
+            had_timeout = False
+            for _ in range(self.retries + 1):
                 start = time.time()
                 list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row]) for one_row in chunk)
                 end = time.time()
                 print(end - start)
                 # list_json_response = [[{'Original Input': 'CHEVRON 0096698\n', 'Company Name': 'API response error: 504 Gateway Time-out with inputs', 'Confidence': 1.0, 'Confidence Level': 'High', 'Aliases': ['Caltex', 'Chevron'], 'Alternative Company Matches': [], 'Related Entities': [{'Name': 'Texaco', 'Closeness Score': 1.0}], 'Ticker': 'CVX', 'Exchange': 'NYSE', 'Majority Owner': 'CHEVRON CORP', 'FIGI': 'BBG000K4ND22'}], [{'Original Input': 'EMC SEAFOOD & RAW BAR\n', 'Company Name': 'EMC Seafood & Raw Bar', 'Confidence': 0.76, 'Confidence Level': 'Medium', 'Aliases': ['EMC Seafood & Raw', 'EMC Seafood &amp; Raw Bar'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': None, 'Exchange': None, 'Majority Owner': None, 'FIGI': None}], [{'Original Input': 'ARAMARK UCI DINING\n', 'Company Name': 'Aramark', 'Confidence': 0.99, 'Confidence Level': 'High', 'Aliases': ['Aramark Corporation'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': 'ARMK', 'Exchange': 'NYSE', 'Majority Owner': 'ARAMARK', 'FIGI': 'BBG001KY4N87'}]]
 
-                for one_json_response in list_json_response:
-                    if "API response error: 504 Gateway Time-out" in one_json_response[0]['Company Name'] \
-                            or "Read timed out" in one_json_response[0]['Company Name'] \
-                            or "API response error: 503 Service Unavailable: Back-end server is at capacity" in one_json_response[0]['Company Name'] :
-                        same_num_thread_counter = 0
-                        reduce_thread = 1
-                        if num_threads > 4:
-                            reduce_thread = 2
-                        if num_threads != 1:
-                            num_threads = num_threads - reduce_thread
-                        inner_chunk_loop_counter += 1
-                        break
+                if any(has_timeout(response[0]['Company Name']) for response in list_json_response):
+                    had_timeout = True
+                    if num_threads > 4:
+                        num_threads -= 2
+                    elif num_threads > 1:
+                        num_threads -= 1
                     logger.info(f"Number of threads in the chunk after error: {num_threads}")
 
-                if inner_chunk_loop_counter != 0:
-                    break
+            if had_timeout:
+                chunks_without_timeout_streak = 0
+            else:
+                chunks_without_timeout_streak += 1
 
-                if inner_chunk_loop_counter == 0 and same_num_thread_counter >= 0:
-                    same_num_thread_counter += 1
-                    shoud_we_restart = 0
-                for one_json_response in list_json_response:
-                    self.write_csv(one_json_response)
+            if chunks_without_timeout_streak >= 3:
+                num_threads += 1
+                num_threads = min(num_threads, self.inputs_per_request)
+
+            for one_json_response in list_json_response:
+                self.write_csv(one_json_response)
 
 
 
