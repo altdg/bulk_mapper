@@ -35,7 +35,7 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(f'adg.{__name__}')
 
-MAX_INPUTS_PER_QUERY = 3
+MAX_INPUTS_PER_QUERY = 40
 N_REQUEST_RETRIES = 2
 TIMEOUT_PER_ITEM = 60
 
@@ -46,8 +46,14 @@ def _chunks(l, n):
         yield l[i:i + n]
 
 class Mapper:
-    API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
+    # API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
+    API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/merchant-mapper'
+
     ENCODING = 'utf-8'
+
+    count_request = 0
+    N_TIMEOUT_RETRIES = 10
+    N_const_thread=3
 
     def __init__(self, endpoint: str, api_key: str, in_file: str = '', out_file: str = '', force_reprocess: bool = False,
                  inputs_per_request: int = MAX_INPUTS_PER_QUERY, retries: int = N_REQUEST_RETRIES,
@@ -134,7 +140,8 @@ class Mapper:
             'Accept': "application/json",
             'Content-Type': "application/json",
             'User-Agent': 'https://github.com/geneman/altdg',
-            'X-Configurations':'[{"CACHE_ERS": False}]'
+            'X-Configurations':'[{"CACHE_ERS": False}]',
+            'X-3scale-proxy-secret-token':'xyz'
         }
 
         timeout = len(inputs) * self.timeout
@@ -145,8 +152,9 @@ class Mapper:
                 logger.debug(f'Retrying previous request. Attempt # {n_attempt+1}')
 
             try:
-                response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper?X_User_Key={self.api_key}', data=payload, headers=headers, timeout=timeout)
-
+                # response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper?X_User_Key={self.api_key}', data=payload, headers=headers, timeout=timeout)
+                response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper', data=payload, headers=headers, timeout=timeout)
+                self.count_request += 1
             except Exception as ex:
                 error = f'API request error: {ex}. ' \
                     f'Please contact info@altdg.com for help if this problem persists.'
@@ -182,39 +190,47 @@ class Mapper:
         n_chunks = ceil(len(raw_inputs) / self.inputs_per_request)
 
         num_threads = self.inputs_per_request
+        init_num_treads = num_threads
+        same_num_thread_counter = 0
 
         for i, chunk in enumerate(_chunks(raw_inputs,self.inputs_per_request)):
+            if same_num_thread_counter == self.N_const_thread:
+                num_threads += 1
+                same_num_thread_counter = 0
+
             shoud_we_restart = 1
-            api_timeout_max_tries = 0
+            inner_chunk_loop_counter = 0
+            num_reduction = (num_threads - 4)//2 + 3
+            num_retries_one_thread = 10
+            max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
 
-            if num_threads == 1:
-                start = time.time()
-                list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(
-                    delayed(self.query_api)([one_row]) for one_row in chunk)
-                end = time.time()
-                print(end - start)
-                for one_json_response in list_json_response:
-                    self.write_csv(one_json_response)
+            while shoud_we_restart and num_threads > 0 and inner_chunk_loop_counter < max_timeout_retry:
 
-            while (shoud_we_restart and num_threads > 0 and api_timeout_max_tries < 10):
                 start = time.time()
                 list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row]) for one_row in chunk)
                 end = time.time()
                 print(end - start)
-                list_json_response = [[{'Original Input': 'ASRock Z97 Extreme4 LGA 1150 Intel Z97 HDMI SATA 6Gb/s USB 3.0 ATX Intel Motherboard\n', 'Company Name': 'API response error: 504 Gateway Time-out with inputs', 'Confidence': 0.87, 'Confidence Level': 'Medium', 'Aliases': ['Newegg Inc.'], 'Alternative Company Matches': ['Intel'], 'Related Entities': [], 'Ticker': None, 'Exchange': None, 'Majority Owner': None, 'FIGI': None}], [{'Original Input': 'APPLE GRANNY SMITH\n', 'Company Name': 'Apple Inc', 'Confidence': 0.72, 'Confidence Level': 'Medium', 'Aliases': [], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': 'AAPL', 'Exchange': 'NASDAQ', 'Majority Owner': 'APPLE INC', 'FIGI': 'BBG000B9XRY4'}], [{'Original Input': 'Nike $10 Gift Card (Email Delivery)\n', 'Company Name': 'Nike', 'Confidence': 0.99, 'Confidence Level': 'High', 'Aliases': ['Nike, Inc.'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': 'NKE', 'Exchange': 'NYSE', 'Majority Owner': 'NIKE INC', 'FIGI': 'BBG000C5HS04'}]]
-                for one_json_response in list_json_response:
+                # list_json_response = [[{'Original Input': 'CHEVRON 0096698\n', 'Company Name': 'API response error: 504 Gateway Time-out with inputs', 'Confidence': 1.0, 'Confidence Level': 'High', 'Aliases': ['Caltex', 'Chevron'], 'Alternative Company Matches': [], 'Related Entities': [{'Name': 'Texaco', 'Closeness Score': 1.0}], 'Ticker': 'CVX', 'Exchange': 'NYSE', 'Majority Owner': 'CHEVRON CORP', 'FIGI': 'BBG000K4ND22'}], [{'Original Input': 'EMC SEAFOOD & RAW BAR\n', 'Company Name': 'EMC Seafood & Raw Bar', 'Confidence': 0.76, 'Confidence Level': 'Medium', 'Aliases': ['EMC Seafood & Raw', 'EMC Seafood &amp; Raw Bar'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': None, 'Exchange': None, 'Majority Owner': None, 'FIGI': None}], [{'Original Input': 'ARAMARK UCI DINING\n', 'Company Name': 'Aramark', 'Confidence': 0.99, 'Confidence Level': 'High', 'Aliases': ['Aramark Corporation'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': 'ARMK', 'Exchange': 'NYSE', 'Majority Owner': 'ARAMARK', 'FIGI': 'BBG001KY4N87'}]]
 
+                for one_json_response in list_json_response:
                     if "API response error: 504 Gateway Time-out" in one_json_response[0]['Company Name']:
+                        same_num_thread_counter = 0
                         reduce_thread = 1
                         if num_threads > 4:
                             reduce_thread = 2
-                        num_threads = num_threads - reduce_thread
-                        api_timeout_max_tries = +1
-                        shoud_we_restart = 1
-                        break
-                    else:
-                        self.write_csv(one_json_response)
-                        shoud_we_restart = 0
+                        if num_threads != 1:
+                            num_threads = num_threads - reduce_thread
+                        inner_chunk_loop_counter += 1
+                if inner_chunk_loop_counter != 0:
+                    break
+
+                if inner_chunk_loop_counter == 0 and same_num_thread_counter >= 0:
+                    same_num_thread_counter += 1
+                    shoud_we_restart = 0
+                for one_json_response in list_json_response:
+                    self.write_csv(one_json_response)
+
+
 
     def write_csv(self, one_json_response):
 
