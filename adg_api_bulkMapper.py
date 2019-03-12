@@ -35,7 +35,7 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(f'adg.{__name__}')
 
-MAX_INPUTS_PER_QUERY = 40
+MAX_INPUTS_PER_QUERY = 3
 N_REQUEST_RETRIES = 2
 TIMEOUT_PER_ITEM = 60
 
@@ -47,8 +47,7 @@ def _chunks(l, n):
 
 class Mapper:
     # API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
-    API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/merchant-mapper'
-
+    API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/'
     ENCODING = 'utf-8'
 
     count_request = 0
@@ -204,6 +203,8 @@ class Mapper:
             num_retries_one_thread = 10
             max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
 
+            logger.info(f"Number of threads in the chunk: {num_threads}")
+
             while shoud_we_restart and num_threads > 0 and inner_chunk_loop_counter < max_timeout_retry:
 
                 start = time.time()
@@ -213,7 +214,7 @@ class Mapper:
                 # list_json_response = [[{'Original Input': 'CHEVRON 0096698\n', 'Company Name': 'API response error: 504 Gateway Time-out with inputs', 'Confidence': 1.0, 'Confidence Level': 'High', 'Aliases': ['Caltex', 'Chevron'], 'Alternative Company Matches': [], 'Related Entities': [{'Name': 'Texaco', 'Closeness Score': 1.0}], 'Ticker': 'CVX', 'Exchange': 'NYSE', 'Majority Owner': 'CHEVRON CORP', 'FIGI': 'BBG000K4ND22'}], [{'Original Input': 'EMC SEAFOOD & RAW BAR\n', 'Company Name': 'EMC Seafood & Raw Bar', 'Confidence': 0.76, 'Confidence Level': 'Medium', 'Aliases': ['EMC Seafood & Raw', 'EMC Seafood &amp; Raw Bar'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': None, 'Exchange': None, 'Majority Owner': None, 'FIGI': None}], [{'Original Input': 'ARAMARK UCI DINING\n', 'Company Name': 'Aramark', 'Confidence': 0.99, 'Confidence Level': 'High', 'Aliases': ['Aramark Corporation'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': 'ARMK', 'Exchange': 'NYSE', 'Majority Owner': 'ARAMARK', 'FIGI': 'BBG001KY4N87'}]]
 
                 for one_json_response in list_json_response:
-                    if "API response error: 504 Gateway Time-out" in one_json_response[0]['Company Name']:
+                    if "API response error: 504 Gateway Time-out" in one_json_response[0]['Company Name'] or "Read timed out" in one_json_response[0]['Company Name']:
                         same_num_thread_counter = 0
                         reduce_thread = 1
                         if num_threads > 4:
