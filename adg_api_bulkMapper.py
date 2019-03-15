@@ -1,18 +1,13 @@
 #!/usr/bin/env python
 """
 © 2018 Alternative Data Group. All Rights Reserved.
-
 Module for running inputs file (one input per line) through ADG's mapper API and writing results to CSV file.
-
 Requires python >= 3.6 (with pip)
 Install dependencies with `pip install requirements.txt`.
-
 Usage (domain mapper):
     python -m adg domains -k "12345" path/to/domains.txt
-
 Usage (merchant mapper):
     python -m adg merchants -k "12345" path/to/domains.txt
-
 TODO: Handle all errors gracefully and provide informative messages (as specific as possible)
       - [x] including rows it can't process from input: write error message out to corresponding CSV row
       - [ ] and output info@altdg.com email for support
@@ -32,10 +27,10 @@ import datetime
 import time
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(f'adg.{__name__}')
 
-MAX_INPUTS_PER_QUERY = 32
+MAX_INPUTS_PER_QUERY = 8
 N_REQUEST_RETRIES = 2
 TIMEOUT_PER_ITEM = 60
 
@@ -46,16 +41,16 @@ def _chunks(l, n):
         yield l[i:i + n]
 
 class Mapper:
-    # API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
-    API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/'
+    API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
+    # API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/'
     ENCODING = 'utf-8'
 
     count_request = 0
     N_TIMEOUT_RETRIES = 10
-    N_const_thread=3
+    N_const_thread=1
 
     def __init__(self, endpoint: str, api_key: str, in_file: str = '', out_file: str = '', force_reprocess: bool = False,
-                 inputs_per_request: int = MAX_INPUTS_PER_QUERY, retries: int = N_REQUEST_RETRIES,
+                 num_requests_parallel: int = MAX_INPUTS_PER_QUERY, retries: int = N_REQUEST_RETRIES,
                  timeout: int = TIMEOUT_PER_ITEM):
         """
         TODO: Document.
@@ -64,7 +59,7 @@ class Mapper:
         :param out_file: Location of the output
         :param api_key: App Key for the ADG API
         :param force_reprocess: Whether to resume or reprocess results
-        :param inputs_per_request: inputs per request
+        :param num_requests_parallel: inputs per request
         :param retries: inputs per Retries per input group
         :param timeout: Timeout (in sec) per input
         """
@@ -75,8 +70,8 @@ class Mapper:
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
-        self.inputs_per_request = min(inputs_per_request, MAX_INPUTS_PER_QUERY)
-        if MAX_INPUTS_PER_QUERY < inputs_per_request:
+        self.inputs_per_request = min(num_requests_parallel, MAX_INPUTS_PER_QUERY)
+        if MAX_INPUTS_PER_QUERY < num_requests_parallel:
             logger.info(f'The of inputs to process per API request was set to its max of {MAX_INPUTS_PER_QUERY}.')
         self.retries = retries
         self.timeout = timeout
@@ -87,7 +82,6 @@ class Mapper:
     def _load_inputs(self) -> List[str]:
         """
         Loads raw inputs from input file.
-
         Returns: list of raw inputs
         """
         with open(self.in_file_location, 'r', encoding=self.ENCODING) as in_file:
@@ -100,7 +94,6 @@ class Mapper:
     def _load_processed_inputs(self) -> List[str]:
         """
         Loads already processed inputs from csv output file.
-
         Returns: list of already processed results.
         """
         result = []
@@ -124,10 +117,8 @@ class Mapper:
     def query_api(self, inputs: List[str]) -> List[dict]:
         """
         Queries ADG mapper API and returns json output.
-
         Args:
             inputs: list of raw input strings to process
-
         Returns:
             List of dicts with data for each input,
             or empty list if request failed
@@ -140,10 +131,10 @@ class Mapper:
             'Content-Type': "application/json",
             'User-Agent': 'https://github.com/geneman/altdg',
             'X-Configurations':'[{"CACHE_ERS": False}]',
-            'X-3scale-proxy-secret-token':'xyz'
+            # 'X-3scale-proxy-secret-token':'xyz'
         }
 
-        timeout = len(inputs) * self.timeout
+        timeout = self.timeout
         logger.debug(f'Timeout for these inputs: {timeout}')
 
         for n_attempt in range(self.retries):
@@ -151,8 +142,8 @@ class Mapper:
                 logger.debug(f'Retrying previous request. Attempt # {n_attempt+1}')
 
             try:
-                # response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper?X_User_Key={self.api_key}', data=payload, headers=headers, timeout=timeout)
-                response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper', data=payload, headers=headers, timeout=timeout)
+                response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper?X_User_Key={self.api_key}', data=payload, headers=headers, timeout=timeout)
+                # response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper', data=payload, headers=headers, timeout=timeout)
                 self.count_request += 1
             except Exception as ex:
                 error = f'API request error: {ex}. ' \
@@ -186,55 +177,53 @@ class Mapper:
             num_processed_inputs = len(processed_inputs)
             raw_inputs = raw_inputs[num_processed_inputs:]
 
-        n_chunks = ceil(len(raw_inputs) / self.inputs_per_request)
-
         num_threads = self.inputs_per_request
-        init_num_treads = num_threads
-        same_num_thread_counter = 0
-
-        for i, chunk in enumerate(_chunks(raw_inputs,self.inputs_per_request)):
-            if same_num_thread_counter == self.N_const_thread:
-                num_threads += 1
-                same_num_thread_counter = 0
-
-            shoud_we_restart = 1
-            inner_chunk_loop_counter = 0
-            num_reduction = (num_threads - 4)//2 + 3
+        chunks_without_timeout_streak = 0
+        for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
+            num_reduction = (num_threads - 4) // 2 + 3
             num_retries_one_thread = 10
             max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
 
             logger.info(f"Number of threads in the chunk: {num_threads}")
 
-            while shoud_we_restart and num_threads > 0 and inner_chunk_loop_counter < max_timeout_retry:
+            def has_timeout(company_name):
+                timeout_messages = ["API response error: 504 Gateway Time-out",
+                                    "Read timed out",
+                                    "API response error: 503 Service Unavailable: Back-end server is at capacity"]
+                return any(msg in company_name for msg in timeout_messages)
 
+            list_json_response = []
+            had_timeout = False
+
+            for i in range(max_timeout_retry+1):
                 start = time.time()
                 list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row]) for one_row in chunk)
                 end = time.time()
                 print(end - start)
                 # list_json_response = [[{'Original Input': 'CHEVRON 0096698\n', 'Company Name': 'API response error: 504 Gateway Time-out with inputs', 'Confidence': 1.0, 'Confidence Level': 'High', 'Aliases': ['Caltex', 'Chevron'], 'Alternative Company Matches': [], 'Related Entities': [{'Name': 'Texaco', 'Closeness Score': 1.0}], 'Ticker': 'CVX', 'Exchange': 'NYSE', 'Majority Owner': 'CHEVRON CORP', 'FIGI': 'BBG000K4ND22'}], [{'Original Input': 'EMC SEAFOOD & RAW BAR\n', 'Company Name': 'EMC Seafood & Raw Bar', 'Confidence': 0.76, 'Confidence Level': 'Medium', 'Aliases': ['EMC Seafood & Raw', 'EMC Seafood &amp; Raw Bar'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': None, 'Exchange': None, 'Majority Owner': None, 'FIGI': None}], [{'Original Input': 'ARAMARK UCI DINING\n', 'Company Name': 'Aramark', 'Confidence': 0.99, 'Confidence Level': 'High', 'Aliases': ['Aramark Corporation'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': 'ARMK', 'Exchange': 'NYSE', 'Majority Owner': 'ARAMARK', 'FIGI': 'BBG001KY4N87'}]]
 
-                for one_json_response in list_json_response:
-                    if "API response error: 504 Gateway Time-out" in one_json_response[0]['Company Name'] \
-                            or "Read timed out" in one_json_response[0]['Company Name'] \
-                            or "API response error: 503 Service Unavailable: Back-end server is at capacity" in one_json_response[0]['Company Name'] :
-                        same_num_thread_counter = 0
-                        reduce_thread = 1
-                        if num_threads > 4:
-                            reduce_thread = 2
-                        if num_threads != 1:
-                            num_threads = num_threads - reduce_thread
-                        inner_chunk_loop_counter += 1
-                        break
+                if any(has_timeout(response[0]['Company Name']) for response in list_json_response):
+                    had_timeout = True
+                    if num_threads > 4:
+                        num_threads -= 2
+                    elif num_threads > 1:
+                        num_threads -= 1
                     logger.info(f"Number of threads in the chunk after error: {num_threads}")
 
-                if inner_chunk_loop_counter != 0:
+                if not any(has_timeout(response[0]['Company Name']) for response in list_json_response):
                     break
 
-                if inner_chunk_loop_counter == 0 and same_num_thread_counter >= 0:
-                    same_num_thread_counter += 1
-                    shoud_we_restart = 0
-                for one_json_response in list_json_response:
-                    self.write_csv(one_json_response)
+            if had_timeout:
+                chunks_without_timeout_streak = 0
+            else:
+                chunks_without_timeout_streak += 1
+
+            if chunks_without_timeout_streak >= 3:
+                num_threads += 1
+                num_threads = min(num_threads, self.inputs_per_request)
+
+            for one_json_response in list_json_response:
+                self.write_csv(one_json_response)
 
 
 
@@ -332,11 +321,11 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--input_no', type=int, default=32, dest='inputs_per_request',
-                        help=f'Number of inputs to process per API request. Default: {32} ')
+    parser.add_argument('-n', '--input_no', type=int, default=4, dest='num_requests_parallel',
+                        help=f'Number of requests to process in parallel. Default: {4} ')
     parser.add_argument('-r', '--retries', type=int, default=N_REQUEST_RETRIES, dest='retries',
                         help=f'Number of retries per domain group. Default: {N_REQUEST_RETRIES}')
-    parser.add_argument('-t', '--timeout', type=int, default=TIMEOUT_PER_ITEM, dest='timeout',
+    parser.add_argument('-t', '--timeout', type=int, default=35, dest='timeout',
                         help=f'API request timeout (in seconds) allowed per domain. Default: {TIMEOUT_PER_ITEM}')
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
