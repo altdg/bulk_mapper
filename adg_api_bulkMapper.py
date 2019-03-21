@@ -308,8 +308,12 @@ class Mapper:
         logger.info('Process complete')
 
 def is_pos_int(string):
-    value = int(string)
-    if value != int(string):
+    try:
+        value = int(string)
+        if value <= 0:
+            msg = "%r is not a postive integer" % string
+            raise argparse.ArgumentTypeError(msg)
+    except ValueError:
         msg = "%r is not a postive integer" % string
         raise argparse.ArgumentTypeError(msg)
     return value
@@ -331,11 +335,11 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--input_no', type=int, default=4, dest='num_requests_parallel',
+    parser.add_argument('-n', '--input_no', type=is_pos_int, default=4, dest='num_requests_parallel',
                         help=f'Number of requests to process in parallel. Default: {4} ')
     parser.add_argument('-r', '--retries', type=is_pos_int, default=N_REQUEST_RETRIES, dest='retries',
                         help=f'Number of retries per domain group. Default: {N_REQUEST_RETRIES}')
-    parser.add_argument('-t', '--timeout', type=int, default=35, dest='timeout',
+    parser.add_argument('-t', '--timeout', type=is_pos_int, default=35, dest='timeout',
                         help=f'API request timeout (in seconds) allowed per domain. Default: {TIMEOUT_PER_ITEM}')
     parser.add_argument(help='Path to input file', dest='in_file')
 
