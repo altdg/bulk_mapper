@@ -20,17 +20,17 @@ import logging
 import os
 import requests
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from math import ceil
 from typing import List
 from joblib import Parallel, delayed
 import datetime
 import time
+import argparse
 
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(f'adg.{__name__}')
 
-MAX_INPUTS_PER_QUERY = 8
+MAX_INPUTS_PER_QUERY = 4
 N_REQUEST_RETRIES = 2
 TIMEOUT_PER_ITEM = 60
 
@@ -40,17 +40,18 @@ def _chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
+
 class Mapper:
-    API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
-    # API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/'
+    # API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
+    API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/'
     ENCODING = 'utf-8'
 
     count_request = 0
     N_TIMEOUT_RETRIES = 10
-    N_const_thread=1
+    N_const_thread = 1
 
-    def __init__(self, endpoint: str, api_key: str, in_file: str = '', out_file: str = '', force_reprocess: bool = False,
-                 num_requests_parallel: int = MAX_INPUTS_PER_QUERY, retries: int = N_REQUEST_RETRIES,
+    def __init__(self, endpoint: str, api_key: str, in_file: str = '', out_file: str = '', force_reprocess:
+                 bool = False, num_requests_parallel: int = MAX_INPUTS_PER_QUERY, retries: int = N_REQUEST_RETRIES,
                  timeout: int = TIMEOUT_PER_ITEM):
         """
         TODO: Document.
@@ -130,8 +131,8 @@ class Mapper:
             'Accept': "application/json",
             'Content-Type': "application/json",
             'User-Agent': 'https://github.com/geneman/altdg',
-            'X-Configurations':'[{"CACHE_ERS": False}]',
-            # 'X-3scale-proxy-secret-token':'xyz'
+            'X-Configurations': '{"CACHE_ERS": False}',
+            'X-3scale-proxy-secret-token':'rkMcYebOqEIRmpFFm0nGIBex7m8pRVtR'
         }
 
         timeout = self.timeout
@@ -142,8 +143,9 @@ class Mapper:
                 logger.debug(f'Retrying previous request. Attempt # {n_attempt+1}')
 
             try:
-                response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper?X_User_Key={self.api_key}', data=payload, headers=headers, timeout=timeout)
-                # response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper', data=payload, headers=headers, timeout=timeout)
+                # esponse = requests.post(f'{self.API_URL}/{self.endpoint}-mapper-debug?X_User_Key={self.api_key}',
+                #                         data=payload, headers=headers, timeout=timeout)
+                response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper', data=payload, headers=headers, timeout=timeout)
                 self.count_request += 1
             except Exception as ex:
                 error = f'API request error: {ex}. ' \
@@ -161,6 +163,13 @@ class Mapper:
 
         logger.error(error)
         return [{'Original Input': rawin, 'Company Name': error} for rawin in inputs]
+
+    def has_timeout(self,company_name):
+        timeout_messages = ["API response error: 504 Gateway Time-out",
+                            "Read timed out",
+                            "API response error: 503 Service Unavailable: Back-end server is at capacity"]
+        return any(msg in company_name for msg in timeout_messages)
+
 
     def bulk(self):
         """
@@ -186,23 +195,19 @@ class Mapper:
 
             logger.info(f"Number of threads in the chunk: {num_threads}")
 
-            def has_timeout(company_name):
-                timeout_messages = ["API response error: 504 Gateway Time-out",
-                                    "Read timed out",
-                                    "API response error: 503 Service Unavailable: Back-end server is at capacity"]
-                return any(msg in company_name for msg in timeout_messages)
 
             list_json_response = []
             had_timeout = False
 
-            for i in range(max_timeout_retry+1):
+            for _ in range(max_timeout_retry + 1):
+
                 start = time.time()
-                list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row]) for one_row in chunk)
+                list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row])
+                                                                                    for one_row in chunk)
                 end = time.time()
                 print(end - start)
-                # list_json_response = [[{'Original Input': 'CHEVRON 0096698\n', 'Company Name': 'API response error: 504 Gateway Time-out with inputs', 'Confidence': 1.0, 'Confidence Level': 'High', 'Aliases': ['Caltex', 'Chevron'], 'Alternative Company Matches': [], 'Related Entities': [{'Name': 'Texaco', 'Closeness Score': 1.0}], 'Ticker': 'CVX', 'Exchange': 'NYSE', 'Majority Owner': 'CHEVRON CORP', 'FIGI': 'BBG000K4ND22'}], [{'Original Input': 'EMC SEAFOOD & RAW BAR\n', 'Company Name': 'EMC Seafood & Raw Bar', 'Confidence': 0.76, 'Confidence Level': 'Medium', 'Aliases': ['EMC Seafood & Raw', 'EMC Seafood &amp; Raw Bar'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': None, 'Exchange': None, 'Majority Owner': None, 'FIGI': None}], [{'Original Input': 'ARAMARK UCI DINING\n', 'Company Name': 'Aramark', 'Confidence': 0.99, 'Confidence Level': 'High', 'Aliases': ['Aramark Corporation'], 'Alternative Company Matches': [], 'Related Entities': [], 'Ticker': 'ARMK', 'Exchange': 'NYSE', 'Majority Owner': 'ARAMARK', 'FIGI': 'BBG001KY4N87'}]]
 
-                if any(has_timeout(response[0]['Company Name']) for response in list_json_response):
+                if any(self.has_timeout(response[0]['Company Name']) for response in list_json_response):
                     had_timeout = True
                     if num_threads > 4:
                         num_threads -= 2
@@ -210,7 +215,7 @@ class Mapper:
                         num_threads -= 1
                     logger.info(f"Number of threads in the chunk after error: {num_threads}")
 
-                if not any(has_timeout(response[0]['Company Name']) for response in list_json_response):
+                if not any(self.has_timeout(response[0]['Company Name']) for response in list_json_response):
                     break
 
             if had_timeout:
@@ -224,8 +229,6 @@ class Mapper:
 
             for one_json_response in list_json_response:
                 self.write_csv(one_json_response)
-
-
 
     def write_csv(self, one_json_response):
 
@@ -304,9 +307,15 @@ class Mapper:
         logger.info(f'Wrote results to {self.out_file_location}')
         logger.info('Process complete')
 
+def is_pos_int(string):
+    value = int(string)
+    if value != int(string):
+        msg = "%r is not a postive integer" % string
+        raise argparse.ArgumentTypeError(msg)
+    return value
 
 if __name__ == '__main__':
-    now_str = datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d')
 
     parser = ArgumentParser(
         description="""
@@ -316,18 +325,20 @@ if __name__ == '__main__':
         """,
         formatter_class=RawDescriptionHelpFormatter
     )
-    parser.add_argument('-e', '--endpoint', required=True, help='Type of input (and API request).', choices=['merchants', 'domains'], dest='endpoint')
+    parser.add_argument('-e', '--endpoint', required=True, help='Type of input (and API request).',
+                        choices=['merchants', 'domains'], dest='endpoint')
     parser.add_argument('-k', '--key', required=True, dest='api_key', help='ADG API application key')
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
     parser.add_argument('-n', '--input_no', type=int, default=4, dest='num_requests_parallel',
                         help=f'Number of requests to process in parallel. Default: {4} ')
-    parser.add_argument('-r', '--retries', type=int, default=N_REQUEST_RETRIES, dest='retries',
+    parser.add_argument('-r', '--retries', type=is_pos_int, default=N_REQUEST_RETRIES, dest='retries',
                         help=f'Number of retries per domain group. Default: {N_REQUEST_RETRIES}')
     parser.add_argument('-t', '--timeout', type=int, default=35, dest='timeout',
                         help=f'API request timeout (in seconds) allowed per domain. Default: {TIMEOUT_PER_ITEM}')
     parser.add_argument(help='Path to input file', dest='in_file')
+
     args = parser.parse_args()
 
     if not args.out_file:
@@ -335,6 +346,7 @@ if __name__ == '__main__':
         args.out_file = os.path.join(
             in_file_dir,
             f'{os.path.splitext(in_file_name)[0]}-{now_str}.csv'
+
         )
 
     Mapper(**vars(args)).bulk()
