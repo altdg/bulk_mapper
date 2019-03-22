@@ -79,7 +79,7 @@ python -m adg_api_bulkMapper -e domains sample-domains.txt -k "12345"
 
 `12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
 
-A CSV output file will be created automatically with the same path as the input file but prepending the current date and time.
+A CSV output file will be created automatically with the same path as the input file but prepending the current date.
 
 [sample-domains.txt](sample-domains.txt) is a sample list of domains we included in our repo. This file is downloaded as part of this package, no need to re-create it. 
 
@@ -93,7 +93,7 @@ python -m adg_api_bulkMapper -e merchants sample-merchants.txt -k "12345"
 ```
 `12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
 
-A CSV output file will be created automatically with the same path as the input file but prepending the current date and time.
+A CSV output file will be created automatically with the same path as the input file but prepending the current date.
 
 [sample-merchants.txt](sample-merchants.txt) is a sample list of domains we included in our repo. This file is downloaded as part of this package, no need to re-create it. 
 
