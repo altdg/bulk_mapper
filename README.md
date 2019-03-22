@@ -108,8 +108,8 @@ Optional arguments:
                  Use this option to force re-process results that are already in that output file, otherwise existing
                  results won't be processed again. Previous results are NOT overwritten, a new CSV row is added.
 * `-n` `--input_no` Number of requests to process in parallel. (See `--help` for max and default)
-* `-r` `--retires` Number of retries per merchant/domain group. (See `--help` for max and default)
-* `-t` `--timeout` API request timeout (in seconds) allowed per merchant/domain. (See `--help` for max and default)
+* `-r` `--retires` Number of retries per request. (See `--help` for max and default)
+* `-t` `--timeout` API request timeout (in seconds). (See `--help` for max and default)
 
 
 ## Development
