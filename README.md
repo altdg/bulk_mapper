@@ -101,13 +101,15 @@ A CSV output file will be created automatically with the same path as the input 
 
 Optional arguments:
 
+* `-e` `--endpoint` Type of mapper. Choices are merchants and domains.
+* `-k` `--key` ADG API application key.
 * `-o` `--out` Output file path. If not provided, the input file name is used with the ".csv" extension, prepended with the date and time.
 * `-F` `--force` When providing a specific out_file, some results may already exist in that file for an input.
                  Use this option to force re-process results that are already in that output file, otherwise existing
                  results won't be processed again. Previous results are NOT overwritten, a new CSV row is added.
-* `-n` `--input_no` Number of domains to process per API request. (See `--help` for max and default)
-* `-r` `--retires` Number of retries per domain group. (See `--help` for max and default)
-* `-t` `--timeout` API request timeout (in seconds) allowed per domain. (See `--help` for max and default)
+* `-n` `--input_no` Number of requests to process in parallel. (See `--help` for max and default)
+* `-r` `--retires` Number of retries per merchant/domain group. (See `--help` for max and default)
+* `-t` `--timeout` API request timeout (in seconds) allowed per merchant/domain. (See `--help` for max and default)
 
 
 ## Development
