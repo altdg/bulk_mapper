@@ -49,6 +49,7 @@ class Mapper:
     N_sec_sleep_key_limit = 15
     MAX_RETIES = 10
     MAX_TIMEOUT = 35
+    error_count = 0
 
     def __init__(self, endpoint, api_key, in_file='', out_file='',
                  force_reprocess=False, num_requests_parallel=MAX_INPUTS_PER_QUERY,
@@ -270,6 +271,7 @@ class Mapper:
             proccessed_row_counter = chunk_counter * self.inputs_per_request
             if len(raw_inputs) - proccessed_row_counter <= 0:
                 logger.info('Wrote {} rows to {}. Processed {} rows in total. Finished.'.format(self.inputs_per_request, self.out_file_location, len(raw_inputs)))
+                logger.info('{} rows succeed. {} rows failed.'.format(len(raw_inputs)-self.error_count, self.error_count))
             else:
                 logger.info('Wrote {} rows to {}. Processed {} rows in total. {} rows are left.'.format(self.inputs_per_request, self.out_file_location, proccessed_row_counter, len(raw_inputs) - proccessed_row_counter))
 
@@ -347,7 +349,8 @@ class Mapper:
             csv_output.flush()
 
             logger.info('{}: {}'.format(result["Original Input"], result["Company Name"]))
-
+            if "error" in result["Company Name"]:
+                self.error_count += 1
         logger.debug('Wrote results to {}'.format(self.out_file_location))
         # logger.info('Process complete')
 
