@@ -77,7 +77,7 @@ class Mapper:
 
         return raw_inputs
 
-    # Load already processed inputs from csv output file.
+    # Load already processed inputs from CSV output file.
     def _load_processed_inputs(self):
         result = []
 
@@ -158,7 +158,7 @@ class Mapper:
 
         raw_inputs = self._load_inputs()
 
-        # Check previous CSV Output.
+        # Check previous CSV output file.
         # Only request for lines are not processed before.
         processed_inputs = self._load_processed_inputs()
         num_processed_inputs = len(processed_inputs)
@@ -221,7 +221,7 @@ class Mapper:
                         response[0]['Company Name']) for response in list_json_response):
                     break
 
-            # Increase number of thread when there is no time out error in a number of consecutive chunks.
+            # Increase number of thread when there is no timeout error in a number of consecutive chunks.
             if had_timeout:
                 chunks_without_timeout_streak = 0
             else:
@@ -246,7 +246,7 @@ class Mapper:
                     self.inputs_per_request, self.out_file_location, proccessed_row_counter,
                     len(raw_inputs) - proccessed_row_counter))
 
-    # Write one API response to the output CSV file.
+    # Write one API response to output CSV file.
     def write_csv(self, one_json_response):
 
         # Check if output file already exist.
@@ -325,10 +325,9 @@ class Mapper:
             if "error" in result["Company Name"]:
                 self.error_count += 1
         logger.debug('Wrote results to {}'.format(self.out_file_location))
-        # logger.info('Process complete')
 
 
-# Check if -n (num_requests_parallel) and -r (retries) are positive integers.
+# Check if -n (num_requests_parallel), -r (retries) and -t (timeout) are positive integers.
 def is_pos_int(string):
     try:
         value = int(string)
@@ -370,7 +369,7 @@ if __name__ == '__main__':
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
-    # check is input file exists.
+    # check if input file exists.
     # If input file does not exist, then terminate the program.
     exists = os.path.isfile(args.in_file)
     if not exists:
