@@ -1,80 +1,65 @@
 #!/usr/bin/env python
 """
 2018 Alternative Data Group. All Rights Reserved.
-Module for running inputs file (one input per line) through ADG's mapper API and writing results to CSV file.
+Module for running input file through ADG's mapper API and writing results to CSV file.
 Requires python >= 3.6 (with pip)
 Install dependencies with 'pip install requirements.txt'.
 Usage (domain mapper):
     python -m adg domains -k "12345" path/to/domains.txt
 Usage (merchant mapper):
-    python -m adg merchants -k "12345" path/to/domains.txt
+    python -m adg merchants -k "12345" path/to/merchants.txt
 """
 
+import os
+import sys
+import logging
 import json
 import csv
-import logging
-import os
 import requests
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from joblib import Parallel, delayed
 import datetime
 import time
 import argparse
-import sys
-if sys.version_info < (3, 6):
-    raise SystemExit('Sorry, this code need Python 3.6 or higher')
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from joblib import Parallel, delayed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('adg.{}'.format(__name__))
 
-MAX_INPUTS_PER_QUERY = 8
-N_REQUEST_RETRIES = 2
-TIMEOUT_PER_ITEM = 30
 
-
+# Yield successive n-sized chunks from input file
 def _chunks(l, n):
-    """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
 
 class Mapper:
     API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
-    # API_URL = 'http://adg-api-dev.us-east-1.elasticbeanstalk.com/'
     ENCODING = 'utf-8'
 
-    count_request = 0
+    MAX_INPUTS_PER_QUERY = 8
+    N_REQUEST_RETRIES = 2
+    TIMEOUT_PER_ITEM = 30
     N_TIMEOUT_RETRIES = 10
-    N_const_thread = 1
-    N_sec_sleep_key_limit = 15
     MAX_RETIES = 10
     MAX_TIMEOUT = 35
+    N_const_thread = 1
+    N_sec_sleep_key_limit = 15
+    count_request = 0
     error_count = 0
 
     def __init__(self, endpoint, api_key, in_file='', out_file='',
                  force_reprocess=False, num_requests_parallel=MAX_INPUTS_PER_QUERY,
                  retries=N_REQUEST_RETRIES, timeout=TIMEOUT_PER_ITEM):
-        """
-        TODO: Document.
-        :param endpoint: Which API method to use, either "merchant" or "domain".
-        :param in_file: Location of the inputs
-        :param out_file: Location of the output
-        :param api_key: App Key for the ADG API
-        :param force_reprocess: Whether to resume or reprocess results
-        :param num_requests_parallel: inputs per request
-        :param retries: inputs per Retries per input group
-        :param timeout: Timeout (in sec) per input
-        """
         assert endpoint in ['merchants', 'domains']
-
         self.endpoint = endpoint[:-1]
         self.in_file_location = os.path.expanduser(in_file)
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
-        self.inputs_per_request = min(num_requests_parallel, MAX_INPUTS_PER_QUERY)
-        if MAX_INPUTS_PER_QUERY < num_requests_parallel:
-            logger.info('Number of requests to process in parallel was set to its max of {}.'.format(MAX_INPUTS_PER_QUERY))
+        self.inputs_per_request = min(num_requests_parallel, self.MAX_INPUTS_PER_QUERY)
+        if self.MAX_INPUTS_PER_QUERY < num_requests_parallel:
+            logger.info('Number of requests to process in parallel was set to its max of {}.'.format(
+                self.MAX_INPUTS_PER_QUERY))
         self.retries = min(retries, self.MAX_RETIES)
         if self.MAX_RETIES < retries:
             logger.info('Number of retries per request was set to its max of {}.'.format(self.MAX_RETIES))
@@ -82,15 +67,8 @@ class Mapper:
         if self.MAX_TIMEOUT < timeout:
             logger.info('API request timeout (in seconds) was set to its max of {}.'.format(self.MAX_TIMEOUT))
 
-        self._previously_tested_input = []  # used to store the previously tested input data, and allow users to resume
-        self._in_file_contents = []  # list of the search terms to test against
-
+    # Load raw inputs from input file.
     def _load_inputs(self):
-        """
-        Loads raw inputs from input file.
-        Returns: list of raw inputs
-        """
-
         with open(self.in_file_location, 'r', encoding=self.ENCODING) as in_file:
             raw_inputs = in_file.read().splitlines()
 
@@ -99,23 +77,19 @@ class Mapper:
 
         return raw_inputs
 
+    # Load already processed inputs from csv output file.
     def _load_processed_inputs(self):
-        """
-        Loads already processed inputs from csv output file.
-        Returns: list of already processed results.
-        """
         result = []
 
         if not os.path.isfile(self.out_file_location):
             return result
-
 
         with open(self.out_file_location, 'r', encoding=self.ENCODING) as csv_out_file:
             csv_reader = csv.reader(csv_out_file, delimiter=',')
 
             for i, row in enumerate(csv_reader):
                 if i == 0:
-                    # Skip this line cause it's the header
+                    # Skip the first line which is the header
                     continue
 
                 if row:
@@ -123,42 +97,31 @@ class Mapper:
 
         return result
 
+    # Query ADG API and return json output.
     def query_api(self, inputs):
-        """
-        Queries ADG mapper API and returns json output.
-        Args:
-            inputs: list of raw input strings to process
-        Returns:
-            List of dicts with data for each input,
-            or empty list if request failed
-        """
         payload = json.dumps(inputs)
-        # print(payload)
-        # print(datetime.datetime.now())
+        timeout = self.timeout
+
         headers = {
             'Accept': "application/json",
             'Content-Type': "application/json",
-            'User-Agent': 'https://github.com/geneman/altdg',
-            'X-Configurations': '{"CACHE_ERS": False}',
-            # 'X-3scale-proxy-secret-token':'xyz'
+            'User-Agent': 'https://github.com/geneman/altdg'
         }
 
-        timeout = self.timeout
-
         for n_attempt in range(self.retries):
+
             if n_attempt > 0:
-                logger.info('Retrying previous request. Attempt # {}'.format(n_attempt+1))
+                logger.debug('Retrying previous request. Attempt # {}'.format(n_attempt+1))
 
             try:
-                response = requests.post('{}/{}-mapper-debug?X_User_Key={}'.format(self.API_URL,self.endpoint,self.api_key),
-                                     data=payload, headers=headers, timeout=timeout)
-                # response = requests.post('{}/{}-mapper'.format(self.API_URL,self.endpoint), data=payload, headers=headers, timeout=timeout)
+                response = requests.post('{}/{}-mapper-debug?X_User_Key={}'.format(self.API_URL,
+                           self.endpoint, self.api_key), data=payload, headers=headers, timeout=timeout)
                 self.count_request += 1
 
             except Exception as ex:
-                error = 'API request error: {}. Please contact info@altdg.com for help if this problem persists.'.format(ex)
+                error = 'API request error: {}. Please contact info@altdg.com for help ' \
+                        'if this problem persists.'.format(ex)
                 logger.debug(error)
-
                 continue
 
             if response.status_code == 401:
@@ -167,14 +130,13 @@ class Mapper:
                 continue
 
             if not response.ok:
-                error = 'API response error: {} {} for inputs {}. Please contact info@altdg.com for help if this problem persists.'.format(response.status_code,response.reason,inputs)
+                error = 'API response error: {} {} for inputs {}. Please contact info@altdg.com for help ' \
+                        'if this problem persists.'.format(response.status_code, response.reason, inputs)
                 logger.info(error)
-
                 continue
 
             return response.json()
 
-        # if response.status_code != 401:
         logger.error(error)
         return [{'Original Input': rawin, 'Company Name': error} for rawin in inputs]
 
@@ -196,16 +158,19 @@ class Mapper:
 
         raw_inputs = self._load_inputs()
 
-        # Check and load previous CSV Output
+        # Check previous CSV Output.
+        # Only request for lines are not processed before.
         processed_inputs = self._load_processed_inputs()
         num_processed_inputs = len(processed_inputs)
 
         if not self.force_reprocess:
             raw_inputs = raw_inputs[num_processed_inputs:]
-            if (len(processed_inputs)) and raw_inputs !=[]:
-                logger.info('{} already exists in your destination with {} rows. Continue processing from row {} of input file.'.format(self.out_file_location, len(processed_inputs), len(processed_inputs) + 1))
+            if (len(processed_inputs)) and raw_inputs != []:
+                logger.info('{} already exists in your destination with {} rows. Continue processing from row {} of input file.'.format(
+                    self.out_file_location, len(processed_inputs), len(processed_inputs) + 1))
             if (len(processed_inputs)) and raw_inputs == []:
-                logger.info('{} already exists in your destination with {} rows. All rows from input file have been processed.'.format(self.out_file_location, len(processed_inputs)))
+                logger.info('{} already exists in your destination with {} rows. All rows from input file have been processed.'.format(
+                    self.out_file_location, len(processed_inputs)))
         if self.force_reprocess and len(processed_inputs):
             logger.info('Appending results to {} from row {}.'.format(self.out_file_location, len(processed_inputs)+1))
 
@@ -213,8 +178,8 @@ class Mapper:
         chunks_without_timeout_streak = 0
         chunk_counter = 0
 
+        # Use parallel to request API for lines in each chunck.
         for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
-            start = time.time()
             num_reduction = (num_threads - 4) // 2 + 3
             num_retries_one_thread = 10
             max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
@@ -224,6 +189,8 @@ class Mapper:
             list_json_response = []
             had_timeout = False
 
+            # Check time out error in a chunk.
+            # If there is any time out error, then reduce number of thread and request API again.
             for _ in range(max_timeout_retry + 1):
                 list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row])
                                                                                     for one_row in chunk)
@@ -237,7 +204,8 @@ class Mapper:
                         num_threads -= 2
                     elif num_threads > 1:
                         num_threads -= 1
-                    logger.info("Number of requests to process in parallel after too many requests: {}. Continue in {} seconds.".format(num_threads, self.N_sec_sleep_key_limit))
+                    logger.info("Number of requests to process in parallel after too many requests: {}. Continue in {} "
+                                "seconds.".format(num_threads, self.N_sec_sleep_key_limit))
                     time.sleep(self.N_sec_sleep_key_limit)
 
                 if any(self.has_timeout(response[0]['Company Name']) for response in list_json_response):
@@ -246,11 +214,14 @@ class Mapper:
                         num_threads -= 2
                     elif num_threads > 1:
                         num_threads -= 1
-                    logger.info("Number of requests to process in parallel after timeout error: {}.".format(num_threads))
+                    logger.info("Number of requests to process in parallel after timeout error: {}.".format(
+                        num_threads))
 
-                if not any(self.has_timeout(response[0]['Company Name']) or self.has_key_limit(response[0]['Company Name']) for response in list_json_response):
+                if not any(self.has_timeout(response[0]['Company Name']) or self.has_key_limit(
+                        response[0]['Company Name']) for response in list_json_response):
                     break
 
+            # Increase number of thread when there is no time out error in a number of consecutive chunks.
             if had_timeout:
                 chunks_without_timeout_streak = 0
             else:
@@ -263,22 +234,23 @@ class Mapper:
             for one_json_response in list_json_response:
                 self.write_csv(one_json_response)
 
-            end = time.time()
-            req_per_sec = self.inputs_per_request / (end - start)
-            logger.info('{:.2f} requests per second.'.format(req_per_sec))
-
             chunk_counter += 1
             proccessed_row_counter = chunk_counter * self.inputs_per_request
             if len(raw_inputs) - proccessed_row_counter <= 0:
-                logger.info('Wrote {} rows to {}. Processed {} rows in total. Finished.'.format(self.inputs_per_request, self.out_file_location, len(raw_inputs)))
-                logger.info('{} rows succeed. {} rows failed.'.format(len(raw_inputs)-self.error_count, self.error_count))
+                logger.info('Wrote {} rows to {}. Processed {} rows in total. Finished.'.format(
+                    self.inputs_per_request, self.out_file_location, len(raw_inputs)))
+                logger.info('{} rows succeed. {} rows failed.'.format(
+                    len(raw_inputs)-self.error_count, self.error_count))
             else:
-                logger.info('Wrote {} rows to {}. Processed {} rows in total. {} rows are left.'.format(self.inputs_per_request, self.out_file_location, proccessed_row_counter, len(raw_inputs) - proccessed_row_counter))
+                logger.info('Wrote {} rows to {}. Processed {} rows in total. {} rows are left.'.format(
+                    self.inputs_per_request, self.out_file_location, proccessed_row_counter,
+                    len(raw_inputs) - proccessed_row_counter))
 
+    # Write one API response to the output CSV file.
     def write_csv(self, one_json_response):
 
-        # File handling
-
+        # Check if output file already exist.
+        # Always write API response to the same CSV.
         if os.path.dirname(self.out_file_location):
             os.makedirs(os.path.dirname(self.out_file_location), exist_ok=True)
         file_exists = os.path.isfile(self.out_file_location)
@@ -316,11 +288,12 @@ class Mapper:
             quoting=csv.QUOTE_MINIMAL
         )
 
-        if (not file_exists) or len(self._load_processed_inputs())==0:
+        if (not file_exists) or len(self._load_processed_inputs()) == 0:
             writer.writeheader()
             csv_output.flush()
             logger.debug('Wrote headers to {}', format(self.out_file_location))
 
+        # Transform API response from Json to a dictionary for writing to CSV purpose.
         for result in one_json_response:
             aliases = result.get('Aliases', [])
             related = result.get('Related Entities', [])
@@ -355,6 +328,7 @@ class Mapper:
         # logger.info('Process complete')
 
 
+# Check if -n (num_requests_parallel) and -r (retries) are positive integers.
 def is_pos_int(string):
     try:
         value = int(string)
@@ -372,6 +346,7 @@ if __name__ == '__main__':
     start = time.time()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d')
 
+    # Parse command-line input arguments.
     parser = ArgumentParser(
         description="""
             Examples:
@@ -380,26 +355,29 @@ if __name__ == '__main__':
         """,
         formatter_class=RawDescriptionHelpFormatter
     )
-    parser.add_argument('-e', '--endpoint', required=True, help='Type of input (and API request).',
+    parser.add_argument('-e', '--endpoint', required=True, help='Type of mapper.',
                         choices=['merchants', 'domains'], dest='endpoint')
     parser.add_argument('-k', '--key', required=True, dest='api_key', help='ADG API application key')
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--input_no', type=is_pos_int, default=4, dest='num_requests_parallel',
+    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=4, dest='num_requests_parallel',
                         help='Number of requests to process in parallel. Default: {}. Max: {} '.format(4, 8))
-    parser.add_argument('-r', '--retries', type=is_pos_int, default=N_REQUEST_RETRIES, dest='retries',
+    parser.add_argument('-r', '--retries', type=is_pos_int, default=2, dest='retries',
                         help='Number of retries per request. Default: {}. Max: {}'.format(2, 10))
     parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
                         help='API request timeout (in seconds). Default: {}. Max: {}'.format(30, 35))
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
+    # check is input file exists.
+    # If input file does not exist, then terminate the program.
     exists = os.path.isfile(args.in_file)
     if not exists:
         logger.error("Input file does not exist")
         sys.exit()
 
+    # Take input file name plus date as output file name.
     if not args.out_file:
         in_file_dir, in_file_name = os.path.split(args.in_file)
         args.out_file = os.path.join(
@@ -407,6 +385,7 @@ if __name__ == '__main__':
             '{}-{}.csv'.format(os.path.splitext(in_file_name)[0], now_str)
         )
 
+    # Start making API request.
     Mapper(**vars(args)).bulk()
     end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
     end = time.time()
