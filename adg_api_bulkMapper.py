@@ -36,7 +36,7 @@ class Mapper:
     API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
     ENCODING = 'utf-8'
 
-    MAX_INPUTS_PER_QUERY = 8
+    MAX_REQUESTS_PARALLEL = 8
     N_REQUEST_RETRIES = 2
     TIMEOUT_PER_ITEM = 30
     N_TIMEOUT_RETRIES = 10
@@ -48,7 +48,7 @@ class Mapper:
     error_count = 0
 
     def __init__(self, endpoint, api_key, in_file='', out_file='',
-                 force_reprocess=False, num_requests_parallel=MAX_INPUTS_PER_QUERY,
+                 force_reprocess=False, num_requests_parallel=MAX_REQUESTS_PARALLEL,
                  retries=N_REQUEST_RETRIES, timeout=TIMEOUT_PER_ITEM):
         assert endpoint in ['merchants', 'domains']
         self.endpoint = endpoint[:-1]
@@ -56,10 +56,10 @@ class Mapper:
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
-        self.inputs_per_request = min(num_requests_parallel, self.MAX_INPUTS_PER_QUERY)
-        if self.MAX_INPUTS_PER_QUERY < num_requests_parallel:
+        self.inputs_per_request = min(num_requests_parallel, self.MAX_REQUESTS_PARALLEL)
+        if self.MAX_REQUESTS_PARALLEL < num_requests_parallel:
             logger.info('Number of requests to process in parallel was set to its max of {}.'.format(
-                self.MAX_INPUTS_PER_QUERY))
+                self.MAX_REQUESTS_PARALLEL))
         self.retries = min(retries, self.MAX_RETIES)
         if self.MAX_RETIES < retries:
             logger.info('Number of retries per request was set to its max of {}.'.format(self.MAX_RETIES))
