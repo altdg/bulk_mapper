@@ -1,45 +1,33 @@
 #!/usr/bin/env python
 """
-© 2018 Alternative Data Group. All Rights Reserved.
-
-Module for running inputs file (one input per line) through ADG's mapper API and writing results to CSV file.
-
+2018 Alternative Data Group. All Rights Reserved.
+Module for running input file through ADG's mapper API and writing results to CSV file.
 Requires python >= 3.6 (with pip)
-Install dependencies with `pip install requirements.txt`.
-
+Install dependencies with 'pip install requirements.txt'.
 Usage (domain mapper):
     python -m adg domains -k "12345" path/to/domains.txt
-
 Usage (merchant mapper):
-    python -m adg merchants -k "12345" path/to/domains.txt
-
-TODO: Handle all errors gracefully and provide informative messages (as specific as possible)
-      - [x] including rows it can't process from input: write error message out to corresponding CSV row
-      - [ ] and output info@altdg.com email for support
-TODO: out_file CSV should preserve order of inputs in in_file TXT
-TODO: out_file CSV should contain the cleaned domain names. Check those to decide re-processing too.
+    python -m adg merchants -k "12345" path/to/merchants.txt
 """
 
-import csv
-import datetime
-import json
-import logging
 import os
+import sys
+import logging
+import json
+import csv
 import requests
+import datetime
+import time
+import argparse
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from math import ceil
-from typing import List
+from joblib import Parallel, delayed
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(f'adg.{__name__}')
-
-MAX_INPUTS_PER_QUERY = 1
-N_REQUEST_RETRIES = 2
-TIMEOUT_PER_ITEM = 60
+logger = logging.getLogger('adg.{}'.format(__name__))
 
 
+# Yield successive n-sized chunks from input file.
 def _chunks(l, n):
-    """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
@@ -48,59 +36,49 @@ class Mapper:
     API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
     ENCODING = 'utf-8'
 
-    def __init__(self, endpoint: str, api_key: str, in_file: str = '', out_file: str = '', force_reprocess: bool = False,
-                 inputs_per_request: int = MAX_INPUTS_PER_QUERY, retries: int = N_REQUEST_RETRIES,
-                 timeout: int = TIMEOUT_PER_ITEM):
-        """
-        TODO: Document.
-        :param endpoint: Which API method to use, either "merchant" or "domain".
-        :param in_file: Location of the inputs
-        :param out_file: Location of the output
-        :param api_key: App Key for the ADG API
-        :param force_reprocess: Whether to resume or reprocess results
-        :param inputs_per_request: inputs per request
-        :param retries: inputs per Retries per input group
-        :param timeout: Timeout (in sec) per input
-        """
-        assert endpoint in ['merchants', 'domains']
+    MAX_REQUESTS_PARALLEL = 8
+    N_REQUEST_RETRIES = 2
+    TIMEOUT_PER_ITEM = 30
+    N_TIMEOUT_RETRIES = 10
+    MAX_RETIES = 10
+    MAX_TIMEOUT = 35
+    N_const_thread = 1
+    N_sec_sleep_key_limit = 15
+    count_request = 0
+    error_count = 0
 
+    def __init__(self, endpoint, api_key, in_file='', out_file='',
+                 force_reprocess=False, num_requests_parallel=MAX_REQUESTS_PARALLEL,
+                 retries=N_REQUEST_RETRIES, timeout=TIMEOUT_PER_ITEM):
+        assert endpoint in ['merchants', 'domains']
         self.endpoint = endpoint[:-1]
         self.in_file_location = os.path.expanduser(in_file)
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
-        self.inputs_per_request = min(inputs_per_request, MAX_INPUTS_PER_QUERY)
-        if MAX_INPUTS_PER_QUERY < inputs_per_request:
-            logger.info(f'The of inputs to process per API request was set to its max of {MAX_INPUTS_PER_QUERY}.')
-        self.retries = retries
-        self.timeout = timeout
+        self.inputs_per_request = min(num_requests_parallel, self.MAX_REQUESTS_PARALLEL)
+        if self.MAX_REQUESTS_PARALLEL < num_requests_parallel:
+            logger.info('Number of requests to process in parallel was set to its max of {}.'.format(
+                self.MAX_REQUESTS_PARALLEL))
+        self.retries = min(retries, self.MAX_RETIES)
+        if self.MAX_RETIES < retries:
+            logger.info('Number of retries per request was set to its max of {}.'.format(self.MAX_RETIES))
+        self.timeout = min(timeout, self.MAX_TIMEOUT)
+        if self.MAX_TIMEOUT < timeout:
+            logger.info('API request timeout (in seconds) was set to its max of {}.'.format(self.MAX_TIMEOUT))
 
-        self._previously_tested_input = []  # used to store the previously tested input data, and allow users to resume
-        self._in_file_contents = []  # list of the search terms to test against
-
-    def _load_inputs(self) -> List[str]:
-        """
-        Loads raw inputs from input file.
-
-        Returns: list of raw inputs
-        """
+    # Load raw inputs from input file.
+    def _load_inputs(self):
         with open(self.in_file_location, 'r', encoding=self.ENCODING) as in_file:
-            result = in_file.readlines()
+            raw_inputs = in_file.read().splitlines()
 
-        # remove dupes and empty strings; strip inputs
-        result = set([line.strip() for line in result]) - {''}
-        result = list(result)
+        logger.info("Reading from {}. Writing to {}.".format(self.in_file_location, self.out_file_location))
+        logger.info("Number of rows of input file: {}.".format(len(raw_inputs)))
 
-        logger.info(f"Number of input strings in ingested file: {len(result)}")
+        return raw_inputs
 
-        return result
-
-    def _load_processed_inputs(self) -> List[str]:
-        """
-        Loads already processed inputs from csv output file.
-
-        Returns: list of already processed results.
-        """
+    # Load already processed inputs from CSV output file.
+    def _load_processed_inputs(self):
         result = []
 
         if not os.path.isfile(self.out_file_location):
@@ -111,7 +89,7 @@ class Mapper:
 
             for i, row in enumerate(csv_reader):
                 if i == 0:
-                    # Skip this line cause it's the header
+                    # Skip the first line which is the header.
                     continue
 
                 if row:
@@ -119,45 +97,42 @@ class Mapper:
 
         return result
 
-    def query_api(self, inputs: List[str]) -> List[dict]:
-        """
-        Queries ADG mapper API and returns json output.
-
-        Args:
-            inputs: list of raw input strings to process
-
-        Returns:
-            List of dicts with data for each input,
-            or empty list if request failed
-        """
+    # Query ADG API and return json output.
+    def query_api(self, inputs):
         payload = json.dumps(inputs)
+        timeout = self.timeout
 
         headers = {
             'Accept': "application/json",
             'Content-Type': "application/json",
-            'User-Agent': 'https://github.com/geneman/altdg',
+            'User-Agent': 'https://github.com/geneman/altdg'
         }
 
-        timeout = len(inputs) * self.timeout
-        logger.debug(f'Timeout for these inputs: {timeout}')
-
         for n_attempt in range(self.retries):
+
             if n_attempt > 0:
-                logger.debug(f'Retrying previous request. Attempt # {n_attempt+1}')
+                logger.debug('Retrying previous request. Attempt # {}'.format(n_attempt+1))
 
             try:
-                response = requests.post(f'{self.API_URL}/{self.endpoint}-mapper?X_User_Key={self.api_key}', data=payload, headers=headers, timeout=timeout)
+                response = requests.post('{}/{}-mapper-debug?X_User_Key={}'.format(self.API_URL,
+                           self.endpoint, self.api_key), data=payload, headers=headers, timeout=timeout)
+                self.count_request += 1
 
             except Exception as ex:
-                error = f'API request error: {ex}. ' \
-                        f'Please contact info@altdg.com for help if this problem persists.'
+                error = 'API request error: {}. Please contact info@altdg.com for help ' \
+                        'if this problem persists.'.format(ex)
+                logger.debug(error)
+                continue
+
+            if response.status_code == 401:
+                error = 'API response error: 401 Unauthorized for inputs'
                 logger.debug(error)
                 continue
 
             if not response.ok:
-                error = f'API response error: {response.status_code} {response.reason} for inputs {inputs}. ' \
-                        f'Please contact info@altdg.com for help if this problem persists.'
-                logger.debug(error)
+                error = 'API response error: {} {} for inputs {}. Please contact info@altdg.com for help ' \
+                        'if this problem persists.'.format(response.status_code, response.reason, inputs)
+                logger.info(error)
                 continue
 
             return response.json()
@@ -165,24 +140,117 @@ class Mapper:
         logger.error(error)
         return [{'Original Input': rawin, 'Company Name': error} for rawin in inputs]
 
+    def has_timeout(self, company_name):
+        timeout_messages = ["API response error: 504 Gateway Time-out",
+                            "Read timed out",
+                            "API response error: 503 Service Unavailable: Back-end server is at capacity"]
+        return any(msg in company_name for msg in timeout_messages)
+
+    def has_wrong_key(self, company_name):
+        wrong_key_messages = ["API response error: 401 Unauthorized for inputs"]
+        return any(msg in company_name for msg in wrong_key_messages)
+
+    def has_key_limit(self, company_name):
+        key_limit_messages = ["API response error: 429 Too Many Requests for inputs"]
+        return any(msg in company_name for msg in key_limit_messages)
+
     def bulk(self):
-        """
-        TODO: Document.
-        :return:
-        """
+
         raw_inputs = self._load_inputs()
 
+        # Check previous CSV output file.
+        # Only request for lines are not processed before.
+        processed_inputs = self._load_processed_inputs()
+        num_processed_inputs = len(processed_inputs)
+
         if not self.force_reprocess:
-            # Check and load previous CSV Output
-            processed_inputs = self._load_processed_inputs()
-            if len(processed_inputs):
-                logger.info(f'Loaded {len(processed_inputs)} results a previous run.')
+            raw_inputs = raw_inputs[num_processed_inputs:]
+            if (len(processed_inputs)) and raw_inputs != []:
+                logger.info('{} already exists in your destination with {} rows. Continue processing from row {} of input file.'.format(
+                    self.out_file_location, len(processed_inputs), len(processed_inputs) + 1))
+            if (len(processed_inputs)) and raw_inputs == []:
+                logger.info('{} already exists in your destination with {} rows. All rows from input file have been processed.'.format(
+                    self.out_file_location, len(processed_inputs)))
+        if self.force_reprocess and len(processed_inputs):
+            logger.info('Appending results to {} from row {}.'.format(self.out_file_location, len(processed_inputs)+1))
 
-            if processed_inputs:
-                raw_inputs = [rawin for rawin in raw_inputs if rawin not in processed_inputs]
+        num_threads = self.inputs_per_request
+        chunks_without_timeout_streak = 0
+        chunk_counter = 0
 
-        # File handling
-        date_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
+        # Use parallel to request API for lines in each chunk.
+        for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
+            num_reduction = (num_threads - 4) // 2 + 3
+            num_retries_one_thread = 10
+            max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
+
+            logger.info("Number of requests to process in parallel: {}.".format(num_threads))
+
+            list_json_response = []
+            had_timeout = False
+
+            # Check time out error in a chunk.
+            # If there is any time out error, then reduce number of thread and request API again.
+            for _ in range(max_timeout_retry + 1):
+                list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row])
+                                                                                    for one_row in chunk)
+                if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
+                    logger.info("Invalid ADG API application key.")
+                    sys.exit()
+
+                if any(self.has_key_limit(response[0]['Company Name']) for response in list_json_response):
+                    had_timeout = True
+                    if num_threads > 4:
+                        num_threads -= 2
+                    elif num_threads > 1:
+                        num_threads -= 1
+                    logger.info("Number of requests to process in parallel after too many requests: {}. Continue in {} "
+                                "seconds.".format(num_threads, self.N_sec_sleep_key_limit))
+                    time.sleep(self.N_sec_sleep_key_limit)
+
+                if any(self.has_timeout(response[0]['Company Name']) for response in list_json_response):
+                    had_timeout = True
+                    if num_threads > 4:
+                        num_threads -= 2
+                    elif num_threads > 1:
+                        num_threads -= 1
+                    logger.info("Number of requests to process in parallel after timeout error: {}.".format(
+                        num_threads))
+
+                if not any(self.has_timeout(response[0]['Company Name']) or self.has_key_limit(
+                        response[0]['Company Name']) for response in list_json_response):
+                    break
+
+            # Increase number of thread when there is no timeout error in a number of consecutive chunks.
+            if had_timeout:
+                chunks_without_timeout_streak = 0
+            else:
+                chunks_without_timeout_streak += 1
+
+            if chunks_without_timeout_streak >= self.N_const_thread:
+                num_threads += 1
+                num_threads = min(num_threads, self.inputs_per_request)
+
+            for one_json_response in list_json_response:
+                self.write_csv(one_json_response)
+
+            chunk_counter += 1
+            proccessed_row_counter = chunk_counter * self.inputs_per_request
+            if len(raw_inputs) - proccessed_row_counter <= 0:
+                logger.info('Wrote {} rows to {}. Processed {} rows in total. Finished.'.format(
+                    self.inputs_per_request, self.out_file_location, len(raw_inputs)))
+                logger.info('{} rows succeed. {} rows failed.'.format(
+                    len(raw_inputs)-self.error_count, self.error_count))
+            else:
+                logger.info('Wrote {} rows to {}. Processed {} rows in total. {} rows are left.'.format(
+                    self.inputs_per_request, self.out_file_location, proccessed_row_counter,
+                    len(raw_inputs) - proccessed_row_counter))
+
+    # Write one API response to output CSV file.
+    def write_csv(self, one_json_response):
+
+        # Check if output file already exist.
+        # Always write API response to the same CSV.
         if os.path.dirname(self.out_file_location):
             os.makedirs(os.path.dirname(self.out_file_location), exist_ok=True)
         file_exists = os.path.isfile(self.out_file_location)
@@ -209,6 +277,7 @@ class Mapper:
             'Alt Company 2',
         ]
 
+        date_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
         csv_output = open(self.out_file_location, 'a', newline='', encoding=self.ENCODING)
         writer = csv.DictWriter(
             csv_output,
@@ -219,52 +288,64 @@ class Mapper:
             quoting=csv.QUOTE_MINIMAL
         )
 
-        if not file_exists:
+        if (not file_exists) or len(self._load_processed_inputs()) == 0:
             writer.writeheader()
             csv_output.flush()
-            logger.debug(f'Wrote headers to {self.out_file_location}')
+            logger.debug('Wrote headers to {}', format(self.out_file_location))
 
-        n_chunks = ceil(len(raw_inputs) / self.inputs_per_request)
-        for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
-            logger.info(f'{i+1} / {n_chunks}: {chunk}')
+        # Transform API response from Json to a dictionary for writing to CSV purpose.
+        for result in one_json_response:
+            aliases = result.get('Aliases', [])
+            related = result.get('Related Entities', [])
+            alternatives = result.get('Alternative Company Matches', [])
 
-            json_response = self.query_api(chunk)
+            non_changing_keys = ['Original Input', 'Ticker', 'Exchange',
+                                 'Company Name', 'Confidence Level', 'Confidence', 'FIGI']
 
-            for result in json_response:
-                aliases = result.get('Aliases', [])
-                related = result.get('Related Entities', [])
-                alternatives = result.get('Alternative Company Matches', [])
+            csv_row = {
+                **{key: value for key, value in result.items() if key in non_changing_keys},
+                'Date & Time': date_time,
+                'Alias 1': aliases[0] if aliases else None,
+                'Alias 2': aliases[1] if len(aliases) > 1 else None,
+                'Alias 3': aliases[2] if len(aliases) > 2 else None,
+                'Related Entity 1 Name': related[0]['Name'] if related else None,
+                'Related Entity 1 Score': related[0]['Closeness Score'] if related else None,
+                'Related Entity 2 Name': related[1]['Name'] if len(related) > 1 else None,
+                'Related Entity 2 Score': related[1]['Closeness Score'] if len(related) > 1 else None,
+                'Related Entity 3 Name': related[2]['Name'] if len(related) > 2 else None,
+                'Related Entity 3 Score': related[2]['Closeness Score'] if len(related) > 2 else None,
+                'Majority Owner': result.get('Majority Owner'),
+                'Alt Company': alternatives[0] if alternatives else None,
+            }
 
-                non_changing_keys = ['Original Input', 'Ticker', 'Exchange',
-                                     'Company Name', 'Confidence Level', 'Confidence', 'FIGI']
-                csv_row = {
-                    **{key: value for key, value in result.items() if key in non_changing_keys},
-                    'Date & Time': date_time,
-                    'Alias 1': aliases[0] if aliases else None,
-                    'Alias 2': aliases[1] if len(aliases) > 1 else None,
-                    'Alias 3': aliases[2] if len(aliases) > 2 else None,
-                    'Related Entity 1 Name': related[0]['Name'] if related else None,
-                    'Related Entity 1 Score': related[0]['Closeness Score'] if related else None,
-                    'Related Entity 2 Name': related[1]['Name'] if len(related) > 1 else None,
-                    'Related Entity 2 Score': related[1]['Closeness Score'] if len(related) > 1 else None,
-                    'Related Entity 3 Name': related[2]['Name'] if len(related) > 2 else None,
-                    'Related Entity 3 Score': related[2]['Closeness Score'] if len(related) > 2 else None,
-                    'Majority Owner': result.get('Majority Owner'),
-                    'Alt Company': alternatives[0] if alternatives else None,
-                }
+            writer.writerow(csv_row)
+            csv_output.flush()
 
-                writer.writerow(csv_row)
-                csv_output.flush()
+            logger.info('{}: {}'.format(result["Original Input"], result["Company Name"]))
+            if "error" in result["Company Name"]:
+                self.error_count += 1
+        logger.debug('Wrote results to {}'.format(self.out_file_location))
 
-                logger.debug(f'Wrote results for {result["Original Input"]}')
 
-        logger.info(f'Wrote results to {self.out_file_location}')
-        logger.info('Process complete')
+# Check if -n (num_requests_parallel), -r (retries) and -t (timeout) are positive integers.
+def is_pos_int(string):
+    try:
+        value = int(string)
+        if value <= 0:
+            msg = "%r is not a postive integer" % string
+            raise argparse.ArgumentTypeError(msg)
+    except ValueError:
+        msg = "%r is not a postive integer" % string
+        raise argparse.ArgumentTypeError(msg)
+    return value
 
 
 if __name__ == '__main__':
-    now_str = datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')
+    start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
+    start = time.time()
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d')
 
+    # Parse command-line input arguments.
     parser = ArgumentParser(
         description="""
             Examples:
@@ -273,25 +354,38 @@ if __name__ == '__main__':
         """,
         formatter_class=RawDescriptionHelpFormatter
     )
-    parser.add_argument('-e', '--endpoint', required=True, help='Type of input (and API request).', choices=['merchants', 'domains'], dest='endpoint')
+    parser.add_argument('-e', '--endpoint', required=True, help='Type of mapper.',
+                        choices=['merchants', 'domains'], dest='endpoint')
     parser.add_argument('-k', '--key', required=True, dest='api_key', help='ADG API application key')
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--input_no', type=int, default=1, dest='inputs_per_request',
-                        help=f'Number of inputs to process per API request. Default: {1} ')
-    parser.add_argument('-r', '--retries', type=int, default=N_REQUEST_RETRIES, dest='retries',
-                        help=f'Number of retries per domain group. Default: {N_REQUEST_RETRIES}')
-    parser.add_argument('-t', '--timeout', type=int, default=TIMEOUT_PER_ITEM, dest='timeout',
-                        help=f'API request timeout (in seconds) allowed per domain. Default: {TIMEOUT_PER_ITEM}')
+    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=4, dest='num_requests_parallel',
+                        help='Number of requests to process in parallel. Default: {}. Max: {} '.format(4, 8))
+    parser.add_argument('-r', '--retries', type=is_pos_int, default=2, dest='retries',
+                        help='Number of retries per request. Default: {}. Max: {}'.format(2, 10))
+    parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
+                        help='API request timeout (in seconds). Default: {}. Max: {}'.format(30, 35))
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
+    # check if input file exists.
+    # If input file does not exist, then terminate the program.
+    exists = os.path.isfile(args.in_file)
+    if not exists:
+        logger.error("Input file does not exist")
+        sys.exit()
+
+    # Take input file name plus date as output file name.
     if not args.out_file:
         in_file_dir, in_file_name = os.path.split(args.in_file)
         args.out_file = os.path.join(
             in_file_dir,
-            f'{os.path.splitext(in_file_name)[0]}-{now_str}.csv'
+            '{}-{}.csv'.format(os.path.splitext(in_file_name)[0], now_str)
         )
 
+    # Start making API request.
     Mapper(**vars(args)).bulk()
+    end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
+    end = time.time()
+    logger.info('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(start_time, end_time, end - start))
