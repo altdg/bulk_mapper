@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('adg.{}'.format(__name__))
 
 
-# Yield successive n-sized chunks from input file
+# Yield successive n-sized chunks from input file.
 def _chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
@@ -89,7 +89,7 @@ class Mapper:
 
             for i, row in enumerate(csv_reader):
                 if i == 0:
-                    # Skip the first line which is the header
+                    # Skip the first line which is the header.
                     continue
 
                 if row:
@@ -178,7 +178,7 @@ class Mapper:
         chunks_without_timeout_streak = 0
         chunk_counter = 0
 
-        # Use parallel to request API for lines in each chunck.
+        # Use parallel to request API for lines in each chunk.
         for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
             num_reduction = (num_threads - 4) // 2 + 3
             num_retries_one_thread = 10
