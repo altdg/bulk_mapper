@@ -69,7 +69,7 @@ class Mapper:
 
     # Load raw inputs from input file.
     def _load_inputs(self):
-        with open(self.in_file_location, 'r', encoding=self.ENCODING) as in_file:
+        with open(self.in_file_location, 'r', encoding=self.ENCODING, errors='ignore') as in_file:
             raw_inputs = in_file.read().splitlines()
 
         logger.info("Reading from {}. Writing to {}.".format(self.in_file_location, self.out_file_location))
@@ -110,12 +110,16 @@ class Mapper:
 
         for n_attempt in range(self.retries):
 
+            if payload == '[""]':
+                error = 'Empty row from input file as company name'
+                continue
+
             if n_attempt > 0:
                 logger.debug('Retrying previous request. Attempt # {}'.format(n_attempt+1))
 
             try:
-                response = requests.post('{}/{}-mapper-debug?X_User_Key={}'.format(self.API_URL,
-                           self.endpoint, self.api_key), data=payload, headers=headers, timeout=timeout)
+                response = requests.post('{}/{}-mapper?X_User_Key={}'.format(self.API_URL,
+                                         self.endpoint, self.api_key), data=payload, headers=headers, timeout=timeout)
                 self.count_request += 1
 
             except Exception as ex:
@@ -124,20 +128,17 @@ class Mapper:
                 logger.debug(error)
                 continue
 
-            if response.status_code == 401:
-                error = 'API response error: 401 Unauthorized for inputs'
-                logger.debug(error)
-                continue
-
             if not response.ok:
                 error = 'API response error: {} {} for inputs {}. Please contact info@altdg.com for help ' \
                         'if this problem persists.'.format(response.status_code, response.reason, inputs)
-                logger.info(error)
+                if response.status_code != 401:
+                    logger.info(error)
                 continue
 
             return response.json()
 
-        logger.error(error)
+        if 'API response error: 401 Unauthorized for inputs' not in error:
+            logger.error(error)
         return [{'Original Input': rawin, 'Company Name': error} for rawin in inputs]
 
     def has_timeout(self, company_name):
@@ -166,11 +167,11 @@ class Mapper:
         if not self.force_reprocess:
             raw_inputs = raw_inputs[num_processed_inputs:]
             if (len(processed_inputs)) and raw_inputs != []:
-                logger.info('{} already exists in your destination with {} rows. Continue processing from row {} of input file.'.format(
-                    self.out_file_location, len(processed_inputs), len(processed_inputs) + 1))
+                logger.info('{} already exists in your destination with {} rows. Continue processing from row {} of '
+                            'input file.'.format(self.out_file_location, len(processed_inputs), len(processed_inputs)+1))
             if (len(processed_inputs)) and raw_inputs == []:
-                logger.info('{} already exists in your destination with {} rows. All rows from input file have been processed.'.format(
-                    self.out_file_location, len(processed_inputs)))
+                logger.info('{} already exists in your destination with {} rows. All rows from input file have been '
+                            'processed.'.format(self.out_file_location, len(processed_inputs)))
         if self.force_reprocess and len(processed_inputs):
             logger.info('Appending results to {} from row {}.'.format(self.out_file_location, len(processed_inputs)+1))
 
@@ -180,20 +181,20 @@ class Mapper:
 
         # Use parallel to request API for lines in each chunk.
         for i, chunk in enumerate(_chunks(raw_inputs, self.inputs_per_request)):
+            list_json_response = []
+            had_timeout = False
             num_reduction = (num_threads - 4) // 2 + 3
             num_retries_one_thread = 10
             max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
-
             logger.info("Number of requests to process in parallel: {}.".format(num_threads))
-
-            list_json_response = []
-            had_timeout = False
 
             # Check time out error in a chunk.
             # If there is any time out error, then reduce number of thread and request API again.
-            for _ in range(max_timeout_retry + 1):
+            for timeout_retries in range(max_timeout_retry + 1):
+
                 list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row])
                                                                                     for one_row in chunk)
+
                 if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
                     logger.info("Invalid ADG API application key.")
                     sys.exit()
@@ -204,8 +205,10 @@ class Mapper:
                         num_threads -= 2
                     elif num_threads > 1:
                         num_threads -= 1
-                    logger.info("Number of requests to process in parallel after too many requests: {}. Continue in {} "
-                                "seconds.".format(num_threads, self.N_sec_sleep_key_limit))
+                    if timeout_retries != max_timeout_retry:
+                        logger.info("Retries #{}. Number of requests to process in parallel after too many requests: "
+                                    "{}. Continue in {} seconds.".format(timeout_retries+1, num_threads,
+                                                                         self.N_sec_sleep_key_limit))
                     time.sleep(self.N_sec_sleep_key_limit)
 
                 if any(self.has_timeout(response[0]['Company Name']) for response in list_json_response):
@@ -214,8 +217,9 @@ class Mapper:
                         num_threads -= 2
                     elif num_threads > 1:
                         num_threads -= 1
-                    logger.info("Number of requests to process in parallel after timeout error: {}.".format(
-                        num_threads))
+                    if timeout_retries != max_timeout_retry:
+                        logger.info("Retries #{}. Number of requests to process in parallel after timeout error: "
+                                    "{}.".format(timeout_retries+1, num_threads))
 
                 if not any(self.has_timeout(response[0]['Company Name']) or self.has_key_limit(
                         response[0]['Company Name']) for response in list_json_response):
@@ -388,4 +392,4 @@ if __name__ == '__main__':
     Mapper(**vars(args)).bulk()
     end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
     end = time.time()
-    logger.info('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(start_time, end_time, end - start))
+    logger.info('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(start_time, end_time, end-start))
