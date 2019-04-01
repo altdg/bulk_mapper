@@ -69,7 +69,7 @@ class Mapper:
 
     # Load raw inputs from input file.
     def _load_inputs(self):
-        with open(self.in_file_location, 'r', encoding=self.ENCODING) as in_file:
+        with open(self.in_file_location, 'r', encoding=self.ENCODING, errors='ignore') as in_file:
             raw_inputs = in_file.read().splitlines()
 
         logger.info("Reading from {}. Writing to {}.".format(self.in_file_location, self.out_file_location))
@@ -110,11 +110,15 @@ class Mapper:
 
         for n_attempt in range(self.retries):
 
+            if payload == '[""]':
+                error = 'Empty row from input file as company name'
+                continue
+
             if n_attempt > 0:
                 logger.debug('Retrying previous request. Attempt # {}'.format(n_attempt+1))
 
             try:
-                response = requests.post('{}/{}-mapper-debug?X_User_Key={}'.format(self.API_URL,
+                response = requests.post('{}/{}-mapper?X_User_Key={}'.format(self.API_URL,
                                          self.endpoint, self.api_key), data=payload, headers=headers, timeout=timeout)
                 self.count_request += 1
 
