@@ -50,7 +50,7 @@ class Mapper:
     def __init__(self, endpoint, api_key, in_file='', out_file='',
                  force_reprocess=False, num_requests_parallel=MAX_REQUESTS_PARALLEL,
                  retries=N_REQUEST_RETRIES, timeout=TIMEOUT_PER_ITEM):
-        assert endpoint in ['merchants', 'domains']
+        assert endpoint in ['merchants', 'domains', 'products']
         self.endpoint = endpoint[:-1]
         self.in_file_location = os.path.expanduser(in_file)
         self.out_file_location = os.path.expanduser(out_file)
@@ -313,11 +313,11 @@ class Mapper:
                 'Alias 2': aliases[1] if len(aliases) > 1 else None,
                 'Alias 3': aliases[2] if len(aliases) > 2 else None,
                 'Related Entity 1 Name': related[0]['Name'] if related else None,
-                'Related Entity 1 Score': related[0]['Closeness Score'] if related else None,
+                'Related Entity 1 Score': related[0]['Closeness Score'] if ((self.endpoint != 'product') & (len(related) > 0)) else None,
                 'Related Entity 2 Name': related[1]['Name'] if len(related) > 1 else None,
-                'Related Entity 2 Score': related[1]['Closeness Score'] if len(related) > 1 else None,
+                'Related Entity 2 Score': related[1]['Closeness Score'] if ((self.endpoint != 'product') & (len(related) > 1)) else None,
                 'Related Entity 3 Name': related[2]['Name'] if len(related) > 2 else None,
-                'Related Entity 3 Score': related[2]['Closeness Score'] if len(related) > 2 else None,
+                'Related Entity 3 Score': related[2]['Closeness Score'] if ((self.endpoint != 'product') & (len(related) > 2)) else None,
                 'Majority Owner': result.get('Majority Owner'),
                 'Alt Company': alternatives[0] if alternatives else None,
             }
@@ -359,7 +359,7 @@ if __name__ == '__main__':
         formatter_class=RawDescriptionHelpFormatter
     )
     parser.add_argument('-e', '--endpoint', required=True, help='Type of mapper.',
-                        choices=['merchants', 'domains'], dest='endpoint')
+                        choices=['merchants', 'domains', 'products'], dest='endpoint')
     parser.add_argument('-k', '--key', required=True, dest='api_key', help='ADG API application key')
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
