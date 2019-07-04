@@ -46,15 +46,7 @@ Now everything is ready to run the tool.
 ## Authorization
 
 To use this tool you must have a valid app key to the [ADG API](https://developer.altdg.com).
-Depending on you account with ADG, certain methods will be available:
-
-Account type | Merchant mapper | Domain mapper
------------- | ------------- | -------------
-DOMAINS | No | Yes
-MERCHANT | Yes | No
-COMBINED | Yes | Yes
-PII | No | No
-
+Methods are avalible depending on you account type with ADG.
 
 ## Usage
 
@@ -97,11 +89,24 @@ A CSV output file will be created automatically with the same path as the input 
 
 [sample-merchants.txt](sample-merchants.txt) is a sample list of domains we included in our repo. This file is downloaded as part of this package, no need to re-create it. 
 
+### Product mapper
+
+Maps strings from product related text (e.g. inventory) to structured company information.
+> More details in https://developer.altdg.com/docs#product-mapper
+
+```sh
+python -m adg_api_bulkMapper -e products sample-products.txt -k "12345"
+```
+`12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
+
+A CSV output file will be created automatically with the same path as the input file but prepending the current date.
+
+
 ### Command arguments (options)
 
 Optional arguments:
 
-* `-e` `--endpoint` Type of mapper. Choices are merchants and domains.
+* `-e` `--endpoint` Type of mapper. Choices are merchants, domains and products.
 * `-k` `--key` ADG API application key.
 * `-o` `--out` Output file path. If not provided, the input file name is used with the ".csv" extension, prepended with the date and time.
 * `-F` `--force` When providing a specific out_file, some results may already exist in that file for an input.
@@ -110,6 +115,7 @@ Optional arguments:
 * `-n` `--input_no` Number of requests to process in parallel. (See `--help` for max and default)
 * `-r` `--retires` Number of retries per request. (See `--help` for max and default)
 * `-t` `--timeout` API request timeout (in seconds). (See `--help` for max and default)
+* `-c` `--companies_only` Improves the accuracy if the input file contains only company names, no other miscellaneous text. Applicable only when the endpoint mapper is set to merchants.
 
 
 ## Development
