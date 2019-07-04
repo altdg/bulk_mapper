@@ -47,15 +47,16 @@ class Mapper:
     count_request = 0
     error_count = 0
 
-    def __init__(self, endpoint, api_key, in_file='', out_file='',
+    def __init__(self, endpoint, api_key, companies_only,  in_file='', out_file='',
                  force_reprocess=False, num_requests_parallel=MAX_REQUESTS_PARALLEL,
                  retries=N_REQUEST_RETRIES, timeout=TIMEOUT_PER_ITEM):
-        assert endpoint in ['merchants', 'domains']
+        assert endpoint in ['merchants', 'domains', 'products']
         self.endpoint = endpoint[:-1]
         self.in_file_location = os.path.expanduser(in_file)
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
+        self.companies_only = companies_only
         self.inputs_per_request = min(num_requests_parallel, self.MAX_REQUESTS_PARALLEL)
         if self.MAX_REQUESTS_PARALLEL < num_requests_parallel:
             logger.info('Number of requests to process in parallel was set to its max of {}.'.format(
@@ -107,6 +108,9 @@ class Mapper:
             'Content-Type': "application/json",
             'User-Agent': 'https://github.com/geneman/altdg'
         }
+
+        if self.companies_only and self.endpoint == 'merchant':
+            headers['X-Input-Type'] = 'company name'
 
         for n_attempt in range(self.retries):
 
@@ -192,7 +196,7 @@ class Mapper:
             # If there is any time out error, then reduce number of thread and request API again.
             for timeout_retries in range(max_timeout_retry + 1):
 
-                list_json_response = Parallel(n_jobs=num_threads, prefer="threads")(delayed(self.query_api)([one_row])
+                list_json_response = Parallel(n_jobs=num_threads)(delayed(self.query_api)([one_row])
                                                                                     for one_row in chunk)
 
                 if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
@@ -265,6 +269,7 @@ class Mapper:
             'Alias 1',
             'Alias 2',
             'Alias 3',
+            'All Aliases',
             'Confidence Level',
             'Confidence',
             'Ticker',
@@ -277,8 +282,9 @@ class Mapper:
             'Related Entity 2 Score',
             'Related Entity 3 Name',
             'Related Entity 3 Score',
-            'Alt Company 1',
-            'Alt Company 2',
+            'All Related Entities',
+            'Alternative Company Matches',
+            'Websites'
         ]
 
         date_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
@@ -301,7 +307,7 @@ class Mapper:
         for result in one_json_response:
             aliases = result.get('Aliases', [])
             related = result.get('Related Entities', [])
-            alternatives = result.get('Alternative Company Matches', [])
+            # alternatives = result.get('Alternative Company Matches', [])
 
             non_changing_keys = ['Original Input', 'Ticker', 'Exchange',
                                  'Company Name', 'Confidence Level', 'Confidence', 'FIGI']
@@ -312,14 +318,17 @@ class Mapper:
                 'Alias 1': aliases[0] if aliases else None,
                 'Alias 2': aliases[1] if len(aliases) > 1 else None,
                 'Alias 3': aliases[2] if len(aliases) > 2 else None,
-                'Related Entity 1 Name': related[0]['Name'] if related else None,
-                'Related Entity 1 Score': related[0]['Closeness Score'] if related else None,
-                'Related Entity 2 Name': related[1]['Name'] if len(related) > 1 else None,
-                'Related Entity 2 Score': related[1]['Closeness Score'] if len(related) > 1 else None,
-                'Related Entity 3 Name': related[2]['Name'] if len(related) > 2 else None,
-                'Related Entity 3 Score': related[2]['Closeness Score'] if len(related) > 2 else None,
+                'All Aliases': result.get('aliases'),
+                'Related Entity 1 Name': related[0].get('Name') if related else None,
+                'Related Entity 1 Score': related[0].get('Closeness Score') if related else None,
+                'Related Entity 2 Name': related[1].get('Name') if len(related) > 1 else None,
+                'Related Entity 2 Score': related[1].get('Closeness Score') if len(related) > 1 else None,
+                'Related Entity 3 Name': related[2].get('Name') if len(related) > 2 else None,
+                'Related Entity 3 Score': related[2].get('Closeness Score') if len(related) > 2 else None,
+                'All Related Entities': result.get('Related Entities'),
                 'Majority Owner': result.get('Majority Owner'),
-                'Alt Company': alternatives[0] if alternatives else None,
+                'Alternative Company Matches': result.get('Alternative Company Matches'),
+                'Websites': result.get('Websites'),
             }
 
             writer.writerow(csv_row)
@@ -359,7 +368,7 @@ if __name__ == '__main__':
         formatter_class=RawDescriptionHelpFormatter
     )
     parser.add_argument('-e', '--endpoint', required=True, help='Type of mapper.',
-                        choices=['merchants', 'domains'], dest='endpoint')
+                        choices=['merchants', 'domains', 'products'], dest='endpoint')
     parser.add_argument('-k', '--key', required=True, dest='api_key', help='ADG API application key')
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
@@ -370,6 +379,8 @@ if __name__ == '__main__':
                         help='Number of retries per request. Default: {}. Max: {}'.format(2, 10))
     parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
                         help='API request timeout (in seconds). Default: {}. Max: {}'.format(30, 35))
+    parser.add_argument('-c', '--companies_only',  action='store_const', const=True, default=False, dest='companies_only',
+                        help='The input data contains only clean company names text (Applies only to the Merchants Mapper Type')
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
