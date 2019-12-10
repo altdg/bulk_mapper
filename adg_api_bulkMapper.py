@@ -112,8 +112,13 @@ class Mapper:
 
         return result
 
-    def truncate_input(self, inp: str) -> str:
-        """ Truncates string to be no more than MAX_INPUT_LENGTH. Warns if truncation happened """
+    def prepare_input(self, inp: str) -> str:
+        """
+        Truncates string to be no more than MAX_INPUT_LENGTH. Warns if truncation happened.
+        """
+        if not isinstance(inp, str):
+            raise ValueError('Input is not string: {}'.format(inp))
+
         if len(inp) > self.MAX_INPUT_LENGTH:
             inp = inp[:self.MAX_INPUT_LENGTH]
             logger.warning('Truncated input to {} chars: {}'.format(self.MAX_INPUT_LENGTH, inp))
@@ -122,7 +127,7 @@ class Mapper:
 
     # Query ADG API and return json output.
     def query_api(self, inputs):
-        payload = json.dumps(list(map(self.truncate_input, inputs)))
+        payload = json.dumps(list(map(self.prepare_input, inputs)))
         timeout = self.timeout
 
         headers = {
