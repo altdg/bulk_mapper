@@ -30,10 +30,10 @@ Run the following commands in your shell:
 
 ```sh
 # clone the repo
-git clone https://github.com/altdg/bulk_mapper
+git clone https://github.com/altdg/bulk_mapper adg
 
 # create and activate a virtual environment
-cd bulk_mapper
+cd adg
 python -m venv env
 source env/bin/activate
 
