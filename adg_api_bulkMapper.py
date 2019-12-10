@@ -47,23 +47,36 @@ class Mapper:
     count_request = 0
     error_count = 0
 
-    def __init__(self, endpoint, api_key, companies_only,  in_file='', out_file='',
-                 force_reprocess=False, num_requests_parallel=MAX_REQUESTS_PARALLEL,
-                 retries=N_REQUEST_RETRIES, timeout=TIMEOUT_PER_ITEM):
+    def __init__(
+            self,
+            endpoint: str,
+            api_key: str,
+            companies_only: bool = False,
+            in_file: str = '',
+            out_file: str = '',
+            force_reprocess: bool = False,
+            num_requests_parallel: int = MAX_REQUESTS_PARALLEL,
+            retries: int = N_REQUEST_RETRIES,
+            timeout: int = TIMEOUT_PER_ITEM,
+    ):
         assert endpoint in ['merchants', 'domains', 'products']
+
         self.endpoint = endpoint[:-1]
         self.in_file_location = os.path.expanduser(in_file)
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
         self.companies_only = companies_only
+
         self.inputs_per_request = min(num_requests_parallel, self.MAX_REQUESTS_PARALLEL)
         if self.MAX_REQUESTS_PARALLEL < num_requests_parallel:
             logger.info('Number of requests to process in parallel was set to its max of {}.'.format(
                 self.MAX_REQUESTS_PARALLEL))
+
         self.retries = min(retries, self.MAX_RETIES)
         if self.MAX_RETIES < retries:
             logger.info('Number of retries per request was set to its max of {}.'.format(self.MAX_RETIES))
+
         self.timeout = min(timeout, self.MAX_TIMEOUT)
         if self.MAX_TIMEOUT < timeout:
             logger.info('API request timeout (in seconds) was set to its max of {}.'.format(self.MAX_TIMEOUT))
