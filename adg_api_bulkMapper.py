@@ -36,6 +36,7 @@ class Mapper:
     API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
     ENCODING = 'utf-8'
 
+    MAX_INPUT_LENGTH = 127
     MAX_REQUESTS_PARALLEL = 8
     N_REQUEST_RETRIES = 2
     TIMEOUT_PER_ITEM = 30
@@ -111,9 +112,17 @@ class Mapper:
 
         return result
 
+    def truncate_input(self, inp: str) -> str:
+        """ Truncates string to be no more than MAX_INPUT_LENGTH. Warns if truncation happened """
+        if len(inp) > self.MAX_INPUT_LENGTH:
+            inp = inp[:self.MAX_INPUT_LENGTH]
+            logger.warning('Truncated input to {} chars: {}'.format(self.MAX_INPUT_LENGTH, inp))
+
+        return inp
+
     # Query ADG API and return json output.
     def query_api(self, inputs):
-        payload = json.dumps(inputs)
+        payload = json.dumps(list(map(self.truncate_input, inputs)))
         timeout = self.timeout
 
         headers = {
@@ -149,7 +158,7 @@ class Mapper:
                 error = 'API response error: {} {} for inputs {}. Please contact info@altdg.com for help ' \
                         'if this problem persists.'.format(response.status_code, response.reason, inputs)
                 if response.status_code != 401:
-                    logger.info(error)
+                    logger.error(error)
                 continue
 
             return response.json()
