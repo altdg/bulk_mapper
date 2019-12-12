@@ -199,7 +199,8 @@ class Mapper:
             raw_inputs = raw_inputs[num_processed_inputs:]
             if (len(processed_inputs)) and raw_inputs != []:
                 logger.info('{} already exists in your destination with {} rows. Continue processing from row {} of '
-                            'input file.'.format(self.out_file_location, len(processed_inputs), len(processed_inputs)+1))
+                            'input file.'.format(
+                             self.out_file_location, len(processed_inputs), len(processed_inputs)+1))
             if (len(processed_inputs)) and raw_inputs == []:
                 logger.info('{} already exists in your destination with {} rows. All rows from input file have been '
                             'processed.'.format(self.out_file_location, len(processed_inputs)))
@@ -223,8 +224,8 @@ class Mapper:
             # If there is any time out error, then reduce number of thread and request API again.
             for timeout_retries in range(max_timeout_retry + 1):
 
-                list_json_response = Parallel(n_jobs=num_threads)(delayed(self.query_api)([one_row])
-                                                                                    for one_row in chunk)
+                list_json_response = Parallel(n_jobs=num_threads)(
+                    delayed(self.query_api)([one_row]) for one_row in chunk)
 
                 if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
                     logger.info("Invalid ADG API application key.")
@@ -406,8 +407,9 @@ if __name__ == '__main__':
                         help='Number of retries per request. Default: {}. Max: {}'.format(2, 10))
     parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
                         help='API request timeout (in seconds). Default: {}. Max: {}'.format(30, 35))
-    parser.add_argument('-c', '--companies_only',  action='store_const', const=True, default=False, dest='companies_only',
-                        help='The input data contains only clean company names text (Applies only to the Merchants Mapper Type')
+    parser.add_argument('-c', '--companies_only',  action='store_const', const=True, default=False,
+                        dest='companies_only', help='The input data contains only clean company names text '
+                                                    '(Applies only to the Merchants Mapper Type')
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
@@ -430,4 +432,5 @@ if __name__ == '__main__':
     Mapper(**vars(args)).bulk()
     end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
     end = time.time()
-    logger.info('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(start_time, end_time, end-start))
+    logger.info('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(
+        start_time, end_time, end-start))
