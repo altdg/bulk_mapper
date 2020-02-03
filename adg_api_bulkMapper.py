@@ -172,17 +172,20 @@ class Mapper:
             logger.error(error)
         return [{'Original Input': rawin, 'Company Name': error} for rawin in inputs]
 
-    def has_timeout(self, company_name):
+    @staticmethod
+    def has_timeout(company_name):
         timeout_messages = ["API response error: 504 Gateway Time-out",
                             "Read timed out",
                             "API response error: 503 Service Unavailable: Back-end server is at capacity"]
         return any(msg in company_name for msg in timeout_messages)
 
-    def has_wrong_key(self, company_name):
+    @staticmethod
+    def has_wrong_key(company_name):
         wrong_key_messages = ["API response error: 401 Unauthorized for inputs"]
         return any(msg in company_name for msg in wrong_key_messages)
 
-    def has_key_limit(self, company_name):
+    @staticmethod
+    def has_key_limit(company_name):
         key_limit_messages = ["API response error: 429 Too Many Requests for inputs"]
         return any(msg in company_name for msg in key_limit_messages)
 
@@ -229,7 +232,7 @@ class Mapper:
 
                 if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
                     logger.info("Invalid ADG API application key.")
-                    sys.exit()
+                    return
 
                 if any(self.has_key_limit(response[0]['Company Name']) for response in list_json_response):
                     had_timeout = True
@@ -305,11 +308,8 @@ class Mapper:
             'Majority Owner',
             'FIGI',
             'Related Entity 1 Name',
-            'Related Entity 1 Score',
             'Related Entity 2 Name',
-            'Related Entity 2 Score',
             'Related Entity 3 Name',
-            'Related Entity 3 Score',
             'All Related Entities',
             'Alternative Company Matches',
             'Websites'
@@ -346,14 +346,11 @@ class Mapper:
                 'Alias 1': aliases[0] if aliases else None,
                 'Alias 2': aliases[1] if len(aliases) > 1 else None,
                 'Alias 3': aliases[2] if len(aliases) > 2 else None,
-                'All Aliases': result.get('aliases'),
-                'Related Entity 1 Name': related[0].get('Name') if related else None,
-                'Related Entity 1 Score': related[0].get('Closeness Score') if related else None,
-                'Related Entity 2 Name': related[1].get('Name') if len(related) > 1 else None,
-                'Related Entity 2 Score': related[1].get('Closeness Score') if len(related) > 1 else None,
-                'Related Entity 3 Name': related[2].get('Name') if len(related) > 2 else None,
-                'Related Entity 3 Score': related[2].get('Closeness Score') if len(related) > 2 else None,
-                'All Related Entities': result.get('Related Entities'),
+                'All Aliases': '; '.join(aliases),
+                'Related Entity 1 Name': related[0] if related else None,
+                'Related Entity 2 Name': related[1] if len(related) > 1 else None,
+                'Related Entity 3 Name': related[2] if len(related) > 2 else None,
+                'All Related Entities': '; '.join(related),
                 'Majority Owner': result.get('Majority Owner'),
                 'Alternative Company Matches': result.get('Alternative Company Matches'),
                 'Websites': result.get('Websites'),
