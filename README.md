@@ -51,6 +51,7 @@ Methods are avalible depending on you account type with ADG.
 ## Free tier key
 
 Use this key to try the API for free: **f816b9125492069f7f2e3b1cc60659f0**
+
 Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 ## Usage
