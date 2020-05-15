@@ -48,6 +48,10 @@ Now everything is ready to run the tool.
 To use this tool you must have a valid app key to the [ADG API](https://developer.altdg.com).
 Methods are avalible depending on you account type with ADG.
 
+## Free tier key
+
+Use this key to try the API for free: **f816b9125492069f7f2e3b1cc60659f0**
+
 ## Usage
 
 A preferred way to run the tool is to load it as module with the `python` command.
@@ -66,7 +70,7 @@ Maps domain names from given text to structured company information.
 This will run all the domains in the provided text file (one per line expected):
 
 ```sh
-python -m adg_api_bulkMapper -e domains sample-domains.txt -k "12345"
+python -m adg_api_bulkMapper -e domains sample-domains.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 
 `12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
@@ -81,7 +85,7 @@ Maps strings from transactional purchase text (e.g. credit card transactions) to
 > More details in https://developer.altdg.com/docs#merchant-mapper
 
 ```sh
-python -m adg_api_bulkMapper -e merchants sample-merchants.txt -k "12345"
+python -m adg_api_bulkMapper -e merchants sample-merchants.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 `12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
 
@@ -95,7 +99,7 @@ Maps strings from product related text (e.g. inventory) to structured company in
 > More details in https://developer.altdg.com/docs#product-mapper
 
 ```sh
-python -m adg_api_bulkMapper -e products sample-products.txt -k "12345"
+python -m adg_api_bulkMapper -e products sample-products.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 `12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
 
@@ -135,7 +139,7 @@ You may use `Mapper` class from your python program:
 import adg_api_bulkMapper
 
 # initialize Mapper class with your key
-domain_mapper = adg_api_bulkMapper.Mapper(endpoint='domains', api_key='12345')
+domain_mapper = adg_api_bulkMapper.Mapper(endpoint='domains', api_key='f816b9125492069f7f2e3b1cc60659f0')
 
 # query API
 results = domain_mapper.query_api(['abc.com', 'yahoo.com', 'amazon.com'])
