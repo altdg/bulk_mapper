@@ -15,6 +15,8 @@ import sys
 import logging
 import json
 import csv
+from typing import Optional
+
 import requests
 import datetime
 import time
@@ -52,7 +54,6 @@ class Mapper:
             self,
             endpoint: str,
             api_key: str,
-            companies_only: bool = False,
             in_file: str = '',
             out_file: str = '',
             force_reprocess: bool = False,
@@ -67,7 +68,6 @@ class Mapper:
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
-        self.companies_only = companies_only
 
         self.inputs_per_request = min(num_requests_parallel, self.MAX_REQUESTS_PARALLEL)
         if self.MAX_REQUESTS_PARALLEL < num_requests_parallel:
@@ -126,7 +126,7 @@ class Mapper:
         return inp
 
     # Query ADG API and return json output.
-    def query_api(self, inputs):
+    def query_api(self, inputs, hint: Optional[str] = None):
         payload = json.dumps(list(map(self.prepare_input, inputs)))
         timeout = self.timeout
 
@@ -136,8 +136,8 @@ class Mapper:
             'User-Agent': 'https://github.com/geneman/altdg'
         }
 
-        if self.companies_only and self.endpoint == 'merchant':
-            headers['X-Input-Type'] = 'company name'
+        if hint:
+            headers['X-Type-Hint'] = hint
 
         for n_attempt in range(self.retries):
 
@@ -189,7 +189,7 @@ class Mapper:
         key_limit_messages = ["API response error: 429 Too Many Requests for inputs"]
         return any(msg in company_name for msg in key_limit_messages)
 
-    def bulk(self):
+    def bulk(self, hint: Optional[str] = None):
 
         raw_inputs = self._load_inputs()
 
@@ -228,7 +228,7 @@ class Mapper:
             for timeout_retries in range(max_timeout_retry + 1):
 
                 list_json_response = Parallel(n_jobs=num_threads)(
-                    delayed(self.query_api)([one_row]) for one_row in chunk)
+                    delayed(lambda inp: self.query_api(inp, hint=hint))([one_row]) for one_row in chunk)
 
                 if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
                     logger.info("Invalid ADG API application key.")
@@ -404,9 +404,8 @@ if __name__ == '__main__':
                         help='Number of retries per request. Default: {}. Max: {}'.format(2, 10))
     parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
                         help='API request timeout (in seconds). Default: {}. Max: {}'.format(30, 35))
-    parser.add_argument('-c', '--companies_only',  action='store_const', const=True, default=False,
-                        dest='companies_only', help='The input data contains only clean company names text '
-                                                    '(Applies only to the Merchants Mapper Type')
+    parser.add_argument('-th', '--type-hint', default=None,
+                        dest='hint', help='Any hint about input data ("company", "brand", ...)')
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
@@ -426,7 +425,7 @@ if __name__ == '__main__':
         )
 
     # Start making API request.
-    Mapper(**vars(args)).bulk()
+    Mapper(**{k: v for k, v in vars(args).items() if k != 'hint'}).bulk(hint=args.hint)
     end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
     end = time.time()
     logger.info('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(
