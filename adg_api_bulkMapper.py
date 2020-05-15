@@ -5,9 +5,9 @@ Module for running input file through ADG's mapper API and writing results to CS
 Requires python >= 3.6 (with pip)
 Install dependencies with 'pip install requirements.txt'.
 Usage (domain mapper):
-    python -m adg_api_bulkMapper domains -k "12345" path/to/domains.txt
+    python -m adg domains -k "12345" path/to/domains.txt
 Usage (merchant mapper):
-    python -m adg_api_bulkMapper merchants -k "12345" path/to/merchants.txt
+    python -m adg merchants -k "12345" path/to/merchants.txt
 """
 
 import os
@@ -15,15 +15,12 @@ import sys
 import logging
 import json
 import csv
-from concurrent.futures.thread import ThreadPoolExecutor
-
-from typing import Optional
-
 import requests
 import datetime
 import time
 import argparse
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(' ')
@@ -55,6 +52,7 @@ class Mapper:
             self,
             endpoint: str,
             api_key: str,
+            companies_only: bool = False,
             in_file: str = '',
             out_file: str = '',
             force_reprocess: bool = False,
@@ -69,6 +67,7 @@ class Mapper:
         self.out_file_location = os.path.expanduser(out_file)
         self.api_key = api_key
         self.force_reprocess = force_reprocess
+        self.companies_only = companies_only
 
         self.inputs_per_request = min(num_requests_parallel, self.MAX_REQUESTS_PARALLEL)
         if self.MAX_REQUESTS_PARALLEL < num_requests_parallel:
@@ -127,7 +126,7 @@ class Mapper:
         return inp
 
     # Query ADG API and return json output.
-    def query_api(self, inputs, hint: Optional[str] = None):
+    def query_api(self, inputs):
         payload = json.dumps(list(map(self.prepare_input, inputs)))
         timeout = self.timeout
 
@@ -137,8 +136,8 @@ class Mapper:
             'User-Agent': 'https://github.com/geneman/altdg'
         }
 
-        if hint:
-            headers['X-Type-Hint'] = hint
+        if self.companies_only and self.endpoint == 'merchant':
+            headers['X-Input-Type'] = 'company name'
 
         for n_attempt in range(self.retries):
 
@@ -190,7 +189,7 @@ class Mapper:
         key_limit_messages = ["API response error: 429 Too Many Requests for inputs"]
         return any(msg in company_name for msg in key_limit_messages)
 
-    def bulk(self, hint: Optional[str] = None):
+    def bulk(self):
 
         raw_inputs = self._load_inputs()
 
@@ -228,10 +227,9 @@ class Mapper:
             # If there is any time out error, then reduce number of thread and request API again.
             for timeout_retries in range(max_timeout_retry + 1):
 
-                list_json_response = ThreadPoolExecutor(max_workers=num_threads).map(
-                    lambda inp: self.query_api(inp, hint=hint),
-                    ([value] for value in chunk)
-                )
+                list_json_response = Parallel(n_jobs=num_threads)(
+                    delayed(self.query_api)([one_row]) for one_row in chunk)
+
                 if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
                     logger.info("Invalid ADG API application key.")
                     return
@@ -243,12 +241,9 @@ class Mapper:
                     elif num_threads > 1:
                         num_threads -= 1
                     if timeout_retries != max_timeout_retry:
-                        logger.debug(
-                            "Retries #{}. Number of requests to process in parallel after too many "
-                            "requests: {}. Continue in {} seconds.".format(
-                                timeout_retries+1, num_threads, self.N_sec_sleep_key_limit
-                            )
-                        )
+                        logger.debug("Retries #{}. Number of requests to process in parallel after too many requests: "
+                                    "{}. Continue in {} seconds.".format(timeout_retries+1, num_threads,
+                                                                         self.N_sec_sleep_key_limit))
                     time.sleep(self.N_sec_sleep_key_limit)
 
                 if any(self.has_timeout(response[0]['Company Name']) for response in list_json_response):
@@ -258,11 +253,8 @@ class Mapper:
                     elif num_threads > 1:
                         num_threads -= 1
                     if timeout_retries != max_timeout_retry:
-                        logger.debug(
-                            "Retries #{}. Number of requests to process in parallel after timeout error: {}.".format(
-                                timeout_retries+1, num_threads
-                            )
-                        )
+                        logger.debug("Retries #{}. Number of requests to process in parallel after timeout error: "
+                                    "{}.".format(timeout_retries+1, num_threads))
 
                 if not any(self.has_timeout(response[0]['Company Name']) or self.has_key_limit(
                         response[0]['Company Name']) for response in list_json_response):
@@ -405,14 +397,17 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=4, dest='num_requests_parallel',
-                        help='Number of requests to process in parallel. Default: {}. Max: {} '.format(4, 8))
+    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=2, dest='num_requests_parallel',
+                        help='Number of requests to process in parallel. Default: {}. Max: {} '.format(2, 8))
     parser.add_argument('-r', '--retries', type=is_pos_int, default=3, dest='retries',
                         help='Number of retries per request. Default: {}. Max: {}'.format(3, 10))
     parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
                         help='API request timeout (in seconds). Default: {}. Max: {}'.format(30, 35))
-    parser.add_argument('-th', '--type-hint', default=None,
-                        dest='hint', help='Any hint about input data ("company", "brand", ...)')
+    parser.add_argument('-c', '--companies_only',  action='store_const', const=True, default=False,
+                        dest='companies_only', help='The input data contains only clean company names text '
+                                                    '(Applies only to the Merchants Mapper Type')
+    parser.add_argument('-h', '--hint',  default=False,
+                        dest='hint', help='')
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
@@ -432,7 +427,7 @@ if __name__ == '__main__':
         )
 
     # Start making API request.
-    Mapper(**{k: v for k, v in vars(args).items() if k != 'hint'}).bulk(hint=args.hint)
+    Mapper(**vars(args)).bulk()
     end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
     end = time.time()
     logger.debug('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(
