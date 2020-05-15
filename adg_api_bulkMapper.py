@@ -397,8 +397,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=2, dest='num_requests_parallel',
-                        help='Number of requests to process in parallel. Default: {}. Max: {} '.format(2, 8))
+    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=4, dest='num_requests_parallel',
+                        help='Number of requests to process in parallel. Default: {}. Max: {} '.format(4, 8))
     parser.add_argument('-r', '--retries', type=is_pos_int, default=3, dest='retries',
                         help='Number of retries per request. Default: {}. Max: {}'.format(3, 10))
     parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
@@ -406,8 +406,6 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--companies_only',  action='store_const', const=True, default=False,
                         dest='companies_only', help='The input data contains only clean company names text '
                                                     '(Applies only to the Merchants Mapper Type')
-    parser.add_argument('-h', '--hint',  default=False,
-                        dest='hint', help='')
     parser.add_argument(help='Path to input file', dest='in_file')
     args = parser.parse_args()
 
