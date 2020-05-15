@@ -5,9 +5,9 @@ Module for running input file through ADG's mapper API and writing results to CS
 Requires python >= 3.6 (with pip)
 Install dependencies with 'pip install requirements.txt'.
 Usage (domain mapper):
-    python -m adg domains -k "12345" path/to/domains.txt
+    python -m adg_api_bulkMapper domains -k "12345" path/to/domains.txt
 Usage (merchant mapper):
-    python -m adg merchants -k "12345" path/to/merchants.txt
+    python -m adg_api_bulkMapper merchants -k "12345" path/to/merchants.txt
 """
 
 import os
