@@ -15,6 +15,8 @@ import sys
 import logging
 import json
 import csv
+from concurrent.futures.thread import ThreadPoolExecutor
+
 from typing import Optional
 
 import requests
@@ -22,7 +24,6 @@ import datetime
 import time
 import argparse
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from joblib import Parallel, delayed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(' ')
@@ -227,9 +228,10 @@ class Mapper:
             # If there is any time out error, then reduce number of thread and request API again.
             for timeout_retries in range(max_timeout_retry + 1):
 
-                list_json_response = Parallel(n_jobs=num_threads)(
-                    delayed(lambda inp: self.query_api(inp, hint=hint))([one_row]) for one_row in chunk)
-
+                list_json_response = ThreadPoolExecutor(max_workers=num_threads).map(
+                    lambda inp: self.query_api(inp, hint=hint),
+                    ([value] for value in chunk)
+                )
                 if any(self.has_wrong_key(response[0]['Company Name']) for response in list_json_response):
                     logger.info("Invalid ADG API application key.")
                     return
