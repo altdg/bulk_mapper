@@ -115,7 +115,7 @@ Arguments:
 * `-n` `--input_no` Number of requests to process in parallel. (See `--help` for max and default)
 * `-r` `--retires` Number of retries per request. (See `--help` for max and default)
 * `-t` `--timeout` API request timeout (in seconds). (See `--help` for max and default)
-* `-th <hint>` `--type_hint` Improves the accuracy by providing the industry name or any keyword hint relevant to the inputs. E.g. `-th "medical"` 
+* `-th <hint>` `--type-hint` Improves the accuracy by providing the industry name or any keyword hint relevant to the inputs. E.g. `-th "medical"` 
 
 
 ## Development
