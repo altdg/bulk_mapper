@@ -3,9 +3,6 @@ Command-line tool with methods to consume the [ADG API](https://developer.altdg.
 
 © [Alternative Data Group](https://www.altdg.com/). All rights reserved.
 
-**Version 1.0.0-beta**
-
-
 ## Contents
 
 * [Requirements](#requirements)
@@ -32,10 +29,7 @@ Run the following commands in your shell:
 # clone the repo
 git clone https://github.com/altdg/bulk_mapper adg
 
-# create and activate a virtual environment
 cd adg
-python -m venv env
-source env/bin/activate
 
 # install requirements
 pip install -r requirements.txt
@@ -46,7 +40,7 @@ Now everything is ready to run the tool.
 ## Authorization
 
 To use this tool you must have a valid app key to the [ADG API](https://developer.altdg.com).
-Methods are avalible depending on you account type with ADG.
+Methods are available depending on you account type with ADG.
 
 ## Free tier key
 
@@ -58,7 +52,7 @@ Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 A preferred way to run the tool is to load it as module with the `python` command.
 
-Run the tool with `--help` flag to dispay command's usage:
+Run the tool with `--help` flag to display command's usage:
 
 ```sh
 python -m adg_api_bulkMapper --help
@@ -110,18 +104,18 @@ A CSV output file will be created automatically with the same path as the input 
 
 ### Command arguments (options)
 
-Optional arguments:
+Arguments:
 
-* `-e` `--endpoint` Type of mapper. Choices are merchants, domains and products.
-* `-k` `--key` ADG API application key.
-* `-o` `--out` Output file path. If not provided, the input file name is used with the ".csv" extension, prepended with the date and time.
+* `-e <endpoint>` `--endpoint` Type of mapper. Choices are merchants, domains and products.
+* `-k <key>` `--key` ADG API application key.
+* `-o <filename>` `--out` Output file path. If not provided, the input file name is used with the ".csv" extension, prepended with the date and time.
 * `-F` `--force` When providing a specific out_file, some results may already exist in that file for an input.
                  Use this option to force re-process results that are already in that output file, otherwise existing
                  results won't be processed again. Previous results are NOT overwritten, a new CSV row is added.
 * `-n` `--input_no` Number of requests to process in parallel. (See `--help` for max and default)
 * `-r` `--retires` Number of retries per request. (See `--help` for max and default)
 * `-t` `--timeout` API request timeout (in seconds). (See `--help` for max and default)
-* `-c` `--companies_only` Improves the accuracy if the input file contains only company names, no other miscellaneous text. Applicable only when the endpoint mapper is set to merchants.
+* `-th <hint>` `--type_hint` Improves the accuracy by providing the industry name or any keyword hint relevant to the inputs. E.g. `-th "medical"` 
 
 
 ## Development
