@@ -23,7 +23,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from joblib import Parallel, delayed
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('adg.{}'.format(__name__))
+logger = logging.getLogger(' ')
 
 
 # Yield successive n-sized chunks from input file.
@@ -88,7 +88,7 @@ class Mapper:
             raw_inputs = in_file.read().splitlines()
 
         logger.info("Reading from {}. Writing to {}.".format(self.in_file_location, self.out_file_location))
-        logger.info("Number of rows of input file: {}.".format(len(raw_inputs)))
+        logger.info("Now running. {} rows to process.".format(len(raw_inputs)))
 
         return raw_inputs
 
@@ -163,7 +163,7 @@ class Mapper:
                 error = 'API response error: {} {} for inputs {}. Please contact info@altdg.com for help ' \
                         'if this problem persists.'.format(response.status_code, response.reason, inputs)
                 if response.status_code != 401:
-                    logger.error(error)
+                    logger.debug(error)
                 continue
 
             return response.json()
@@ -221,7 +221,7 @@ class Mapper:
             num_reduction = (num_threads - 4) // 2 + 3
             num_retries_one_thread = 10
             max_timeout_retry = max(num_reduction + num_retries_one_thread, self.N_TIMEOUT_RETRIES)
-            logger.info("Number of requests to process in parallel: {}.".format(num_threads))
+            logger.debug("Number of requests to process in parallel: {}.".format(num_threads))
 
             # Check time out error in a chunk.
             # If there is any time out error, then reduce number of thread and request API again.
@@ -241,7 +241,7 @@ class Mapper:
                     elif num_threads > 1:
                         num_threads -= 1
                     if timeout_retries != max_timeout_retry:
-                        logger.info("Retries #{}. Number of requests to process in parallel after too many requests: "
+                        logger.debug("Retries #{}. Number of requests to process in parallel after too many requests: "
                                     "{}. Continue in {} seconds.".format(timeout_retries+1, num_threads,
                                                                          self.N_sec_sleep_key_limit))
                     time.sleep(self.N_sec_sleep_key_limit)
@@ -253,7 +253,7 @@ class Mapper:
                     elif num_threads > 1:
                         num_threads -= 1
                     if timeout_retries != max_timeout_retry:
-                        logger.info("Retries #{}. Number of requests to process in parallel after timeout error: "
+                        logger.debug("Retries #{}. Number of requests to process in parallel after timeout error: "
                                     "{}.".format(timeout_retries+1, num_threads))
 
                 if not any(self.has_timeout(response[0]['Company Name']) or self.has_key_limit(
@@ -276,14 +276,13 @@ class Mapper:
             chunk_counter += 1
             proccessed_row_counter = chunk_counter * self.inputs_per_request
             if len(raw_inputs) - proccessed_row_counter <= 0:
-                logger.info('Wrote {} rows to {}. Processed {} rows in total. Finished.'.format(
-                    self.inputs_per_request, self.out_file_location, len(raw_inputs)))
-                logger.info('{} rows succeed. {} rows failed.'.format(
+                logger.info('Wrote {} rows to {}. Finished.'.format(
+                    len(raw_inputs), self.out_file_location))
+                logger.debug('{} rows succeed. {} rows failed.'.format(
                     len(raw_inputs)-self.error_count, self.error_count))
             else:
-                logger.info('Wrote {} rows to {}. Processed {} rows in total. {} rows are left.'.format(
-                    self.inputs_per_request, self.out_file_location, proccessed_row_counter,
-                    len(raw_inputs) - proccessed_row_counter))
+                logger.info('Processed {} rows in total. {} rows are left.'.format(
+                    proccessed_row_counter, len(raw_inputs) - proccessed_row_counter))
 
     # Write one API response to output CSV file.
     def write_csv(self, one_json_response):
@@ -359,7 +358,7 @@ class Mapper:
             writer.writerow(csv_row)
             csv_output.flush()
 
-            logger.info('{}: {}'.format(result["Original Input"], result["Company Name"]))
+            logger.debug('{}: {}'.format(result["Original Input"], result["Company Name"]))
             if "error" in result["Company Name"]:
                 self.error_count += 1
         logger.debug('Wrote results to {}'.format(self.out_file_location))
@@ -398,10 +397,10 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', help='Path to output file', dest='out_file')
     parser.add_argument('-F', '--force', action='store_const', const=True, default=False, dest='force_reprocess',
                         help='Re-process results that already exist in the output file. (Adds new CSV rows.)')
-    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=4, dest='num_requests_parallel',
-                        help='Number of requests to process in parallel. Default: {}. Max: {} '.format(4, 8))
-    parser.add_argument('-r', '--retries', type=is_pos_int, default=2, dest='retries',
-                        help='Number of retries per request. Default: {}. Max: {}'.format(2, 10))
+    parser.add_argument('-n', '--num_requests_parallel', type=is_pos_int, default=2, dest='num_requests_parallel',
+                        help='Number of requests to process in parallel. Default: {}. Max: {} '.format(2, 8))
+    parser.add_argument('-r', '--retries', type=is_pos_int, default=3, dest='retries',
+                        help='Number of retries per request. Default: {}. Max: {}'.format(3, 10))
     parser.add_argument('-t', '--timeout', type=is_pos_int, default=30, dest='timeout',
                         help='API request timeout (in seconds). Default: {}. Max: {}'.format(30, 35))
     parser.add_argument('-c', '--companies_only',  action='store_const', const=True, default=False,
@@ -429,5 +428,5 @@ if __name__ == '__main__':
     Mapper(**vars(args)).bulk()
     end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
     end = time.time()
-    logger.info('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(
+    logger.debug('Time started: {}. Time ended: {}. Time elapsed (in sec): {:.2f}.'.format(
         start_time, end_time, end-start))
