@@ -241,9 +241,12 @@ class Mapper:
                     elif num_threads > 1:
                         num_threads -= 1
                     if timeout_retries != max_timeout_retry:
-                        logger.debug("Retries #{}. Number of requests to process in parallel after too many requests: "
-                                    "{}. Continue in {} seconds.".format(timeout_retries+1, num_threads,
-                                                                         self.N_sec_sleep_key_limit))
+                        logger.debug(
+                            "Retries #{}. Number of requests to process in parallel after too many "
+                            "requests: {}. Continue in {} seconds.".format(
+                                timeout_retries+1, num_threads, self.N_sec_sleep_key_limit
+                            )
+                        )
                     time.sleep(self.N_sec_sleep_key_limit)
 
                 if any(self.has_timeout(response[0]['Company Name']) for response in list_json_response):
@@ -253,8 +256,11 @@ class Mapper:
                     elif num_threads > 1:
                         num_threads -= 1
                     if timeout_retries != max_timeout_retry:
-                        logger.debug("Retries #{}. Number of requests to process in parallel after timeout error: "
-                                    "{}.".format(timeout_retries+1, num_threads))
+                        logger.debug(
+                            "Retries #{}. Number of requests to process in parallel after timeout error: {}.".format(
+                                timeout_retries+1, num_threads
+                            )
+                        )
 
                 if not any(self.has_timeout(response[0]['Company Name']) or self.has_key_limit(
                         response[0]['Company Name']) for response in list_json_response):
