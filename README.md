@@ -51,6 +51,7 @@ Methods are avalible depending on you account type with ADG.
 ## Free tier key
 
 Use this key to try the API for free: **f816b9125492069f7f2e3b1cc60659f0**
+Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 ## Usage
 
@@ -73,7 +74,7 @@ This will run all the domains in the provided text file (one per line expected):
 python -m adg_api_bulkMapper -e domains sample-domains.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 
-`12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
+Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 A CSV output file will be created automatically with the same path as the input file but prepending the current date.
 
@@ -87,7 +88,7 @@ Maps strings from transactional purchase text (e.g. credit card transactions) to
 ```sh
 python -m adg_api_bulkMapper -e merchants sample-merchants.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
-`12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
+Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 A CSV output file will be created automatically with the same path as the input file but prepending the current date.
 
@@ -101,7 +102,7 @@ Maps strings from product related text (e.g. inventory) to structured company in
 ```sh
 python -m adg_api_bulkMapper -e products sample-products.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
-`12345` is your ADG API application key. Sign up in https://developer.altdg.com/ to get one!
+Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 A CSV output file will be created automatically with the same path as the input file but prepending the current date.
 
