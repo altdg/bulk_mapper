@@ -5,14 +5,20 @@ Command-line tool with methods to consume the [ADG API](https://developer.altdg.
 
 ## Contents
 
-* [Requirements](#requirements)
-* [Installation](#installation)
-* [Authorization](#authorization)
-* [Usage](#usage)
-    * [Domain mapper](#domain-mapper)
-    * [Merchant mapper](#merchant-mapper)
-* [Development](#development)
-* [Support](#support)
+- [ADG API Python Tools](#adg-api-python-tools)
+  - [Contents](#contents)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
+  - [Authorization](#authorization)
+  - [Free tier key](#free-tier-key)
+  - [Usage](#usage)
+    - [Domain mapper](#domain-mapper)
+    - [Merchant mapper](#merchant-mapper)
+    - [Product mapper](#product-mapper)
+    - [Command arguments (options)](#command-arguments-options)
+  - [Development](#development)
+    - [Usage as library](#usage-as-library)
+  - [Support](#support)
 
 
 ## Requirements
@@ -55,7 +61,7 @@ A preferred way to run the tool is to load it as module with the `python` comman
 Run the tool with `--help` flag to display command's usage:
 
 ```sh
-python -m adg_api_bulkMapper --help
+python -m adg.api --help
 ```
 
 ### Domain mapper
@@ -66,14 +72,14 @@ Maps domain names from given text to structured company information.
 This will run all the domains in the provided text file (one per line expected):
 
 ```sh
-python -m adg_api_bulkMapper -e domains sample-domains.txt -k "f816b9125492069f7f2e3b1cc60659f0"
+python -m adg.api -e domain-mapper sample-domains.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 
 Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 A CSV output file will be created automatically with the same path as the input file but prepending the current date.
 
-[sample-domains.txt](sample-domains.txt) is a sample list of domains we included in our repo. This file is downloaded as part of this package, no need to re-create it. 
+[sample-domains.txt](sample-domains.txt) is a sample list of domains we included in our repo. This file is downloaded as part of this package, no need to re-create it.
 
 ### Merchant mapper
 
@@ -81,13 +87,13 @@ Maps strings from transactional purchase text (e.g. credit card transactions) to
 > More details in https://developer.altdg.com/docs#merchant-mapper
 
 ```sh
-python -m adg_api_bulkMapper -e merchants sample-merchants.txt -k "f816b9125492069f7f2e3b1cc60659f0"
+python -m adg.api -e merchant-mapper sample-merchants.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 Sign up at https://developer.altdg.com/ to get a non-trial key.
 
 A CSV output file will be created automatically with the same path as the input file but prepending the current date.
 
-[sample-merchants.txt](sample-merchants.txt) is a sample list of domains we included in our repo. This file is downloaded as part of this package, no need to re-create it. 
+[sample-merchants.txt](sample-merchants.txt) is a sample list of domains we included in our repo. This file is downloaded as part of this package, no need to re-create it.
 
 ### Product mapper
 
@@ -95,7 +101,7 @@ Maps strings from product related text (e.g. inventory) to structured company in
 > More details in https://developer.altdg.com/docs#product-mapper
 
 ```sh
-python -m adg_api_bulkMapper -e products sample-products.txt -k "f816b9125492069f7f2e3b1cc60659f0"
+python -m adg.api -e product-mapper sample-products.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 Sign up at https://developer.altdg.com/ to get a non-trial key.
 
@@ -106,16 +112,16 @@ A CSV output file will be created automatically with the same path as the input 
 
 Arguments:
 
-* `-e <endpoint>` `--endpoint` Type of mapper. Choices are merchants, domains and products.
+* `-e <endpoint>` `--endpoint` Type of mapper. Choices are "merchant-mapper", "domain-mapper" and "product-mapper".
 * `-k <key>` `--key` ADG API application key.
 * `-o <filename>` `--out` Output file path. If not provided, the input file name is used with the ".csv" extension, prepended with the date and time.
 * `-F` `--force` When providing a specific out_file, some results may already exist in that file for an input.
                  Use this option to force re-process results that are already in that output file, otherwise existing
                  results won't be processed again. Previous results are NOT overwritten, a new CSV row is added.
-* `-n` `--input_no` Number of requests to process in parallel. (See `--help` for max and default)
-* `-r` `--retires` Number of retries per request. (See `--help` for max and default)
+* `-n` `--num-threads` Number of requests to process in parallel. (See `--help` for max and default)
+* `-r` `--num-retires` Number of retries per request. (See `--help` for max and default)
 * `-t` `--timeout` API request timeout (in seconds). (See `--help` for max and default)
-* `-th <hint>` `--type-hint` Improves the accuracy by providing the industry name or any keyword hint relevant to the inputs. E.g. `-th "medical"` 
+* `-th <hint>` `--type-hint` Improves the accuracy by providing the industry name or any keyword hint relevant to the inputs. E.g. `-th "medical"`
 
 
 ## Development
@@ -128,17 +134,20 @@ pip install -r requirements.txt
 
 ### Usage as library
 
-You may use `Mapper` class from your python program:
+You may use `AdgApi` class from your python program:
 
 ```python
-# first, import adg_api_bulkMapper module
-import adg_api_bulkMapper
+from adg.api import AdgApi
 
 # initialize Mapper class with your key
-domain_mapper = adg_api_bulkMapper.Mapper(endpoint='domains', api_key='f816b9125492069f7f2e3b1cc60659f0')
+mapper = AdgApi('domain-mapper', api_key='f816b9125492069f7f2e3b1cc60659f0')
 
-# query API
-results = domain_mapper.query_api(['abc.com', 'yahoo.com', 'amazon.com'])
+# single query
+print(mapper.query('abc.com'))
+
+# bulk query
+for result in mapper.bulk_query(['yahoo.com', 'amazon.com']):
+    print(result)
 ```
 
 
