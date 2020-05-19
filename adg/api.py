@@ -1,59 +1,47 @@
 #!/usr/bin/env python
 """
-2018 Alternative Data Group. All Rights Reserved.
-Module for running input file through ADG's mapper API and writing results to CSV file.
-Requires python >= 3.6 (with pip)
-Install dependencies with 'pip install requirements.txt'.
-Usage (domain mapper):
-    python -m adg domains -k "12345" path/to/domains.txt
-Usage (merchant mapper):
-    python -m adg merchants -k "12345" path/to/merchants.txt
-"""
-#
-# you can see the char issue for example in above_farms_modelsnum-2020-05-15.csv -- look at  ï»¿MANUFACTURER
-#
-#
-#
-#
-#
-# 01:34
-# the input file doesnt have any special chars
-# 01:34
-# it might have to do with how excel saves csvs
+2020 Alternative Data Group. All Rights Reserved.
 
+Module for running input file through ADG's mapper API and writing results to CSV file.
+
+Requires python >= 3.6.
+Install dependencies with 'pip install requirements.txt'.
+
+Help: python -m adg.api -h
+"""
+
+import argparse
+import csv
+import datetime
+import json
+import logging
 import os
 import sys
-import logging
-import json
-import csv
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from concurrent.futures.thread import ThreadPoolExecutor
 from math import ceil
-from warnings import warn
+from operator import itemgetter
 
 import requests
-import datetime
-import time
-import argparse
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from chardet import UniversalDetector
+from typing import Optional, Iterator, Iterable, Any
 
-from typing import List, Optional, Iterator, Iterable
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# Yield successive n-sized chunks from input file.
-def chunks(l, n):
-    for i in range(0, len(l), n):
-        yield l[i:i + n]
+def chunks(collection: Iterable, n: int):
+    """ Yield successive n-sized chunks from collection """
+    collection = list(collection)
+    for i in range(0, len(collection), n):
+        yield collection[i:i + n]
 
 
-class ApiAuthError(Exception):
-    pass
-
-
-class ApiInternalError(Exception):
-    pass
+def get_or_default(lst: list, idx: int, default: Any) -> Any:
+    try:
+        return lst[idx]
+    except IndexError:
+        return default
 
 
 class AdgApi:
@@ -67,6 +55,7 @@ class AdgApi:
         'User-Agent': 'https://github.com/altdg/bulk_mapper',
     }
 
+    # ---- input processing ----
     MAX_INPUT_LENGTH = 127
 
     # ---- parallel settings ----
@@ -78,13 +67,29 @@ class AdgApi:
     DEFAULT_NUM_RETRIES = 2
     MAX_NUM_RETRIES = 10
 
-
-    TIMEOUT_PER_ITEM = 30
-    N_TIMEOUT_RETRIES = 10
-    MAX_TIMEOUT = 35
-    N_sec_sleep_key_limit = 15
-    error_count = 0
-    ENCODING = 'utf-8'
+    # ---- csv file fields mappings  ----
+    CSV_FIELDS = {
+        # CSV file field: API output mapping function
+        'Original Input': itemgetter('Original Input'),
+        'Date & Time': lambda result: datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S'),
+        'Company Name': itemgetter('Company Name'),
+        'Alias 1': lambda result: get_or_default(result['Aliases'], 0, ''),
+        'Alias 2': lambda result: get_or_default(result['Aliases'], 1, ''),
+        'Alias 3': lambda result: get_or_default(result['Aliases'], 2, ''),
+        'All Aliases': lambda result: '; '.join(result['Aliases']),
+        'Confidence Level': itemgetter('Confidence Level'),
+        'Confidence': itemgetter('Confidence'),
+        'Ticker': itemgetter('Ticker'),
+        'Exchange': itemgetter('Exchange'),
+        'Majority Owner': itemgetter('Majority Owner'),
+        'FIGI': itemgetter('FIGI'),
+        'Related Entity 1 Name': lambda result: get_or_default(result['Related Entities'], 0, ''),
+        'Related Entity 2 Name': lambda result: get_or_default(result['Related Entities'], 1, ''),
+        'Related Entity 3 Name': lambda result: get_or_default(result['Related Entities'], 2, ''),
+        'All Related Entities': lambda result: '; '.join(result['Related Entities']),
+        'Alternative Company Matches': lambda result: ': '.join(result['Alternative Company Matches']),
+        'Websites': lambda result: '; '.join(result['Websites']),
+    }
 
     def __init__(
         self,
@@ -166,6 +171,7 @@ class AdgApi:
                     timeout=self.RESPONSE_TIMEOUT,
                 )
                 response.raise_for_status()
+
                 return response.json()[0]
             except Exception as exc:
                 logger.error(f'API request error: {exc}. Please contact {self.SUPPORT_EMAIL} for help '
@@ -173,7 +179,7 @@ class AdgApi:
 
                 if response.status_code == 401:
                     logger.warning(f'Authentication error. Check your API key "{self.api_key}"'
-                                     f' or use demo key "{self.DEMO_KEY}"')
+                                   f' or use demo key "{self.DEMO_KEY}"')
                     raise
 
                 continue
@@ -199,9 +205,10 @@ class AdgApi:
         for chunk in map(list, chunks(values, self.num_threads)):
             while True:
                 try:
-                    for result in ThreadPoolExecutor(max_workers=num_threads).map(
-                            lambda value: self.query(value, hint=hint), chunk):
-                        yield result
+                    yield from ThreadPoolExecutor(max_workers=num_threads).map(
+                            lambda value: self.query(value, hint=hint),
+                            filter(None, chunk)  # remove empty inputs
+                    )
 
                     if num_threads < self.num_threads:
                         num_threads += 1
@@ -209,158 +216,122 @@ class AdgApi:
 
                     break
 
-                except Exception:
-                    num_threads = ceil(num_threads / 2)
-                    logger.debug(f'Decreasing number of threads to {num_threads}')
-    #
-    # # Load raw inputs from input file.
-    # def _load_inputs(self):
-    #     with open(self.in_file_location, 'r', encoding=self.ENCODING, errors='ignore') as in_file:
-    #         raw_inputs = in_file.read().splitlines()
-    #
-    #     logger.info("Reading from {}. Writing to {}.".format(self.in_file_location, self.out_file_location))
-    #     logger.info("Now running. {} rows to process.".format(len(raw_inputs)))
-    #
-    #     return raw_inputs
-    #
-    # # Load already processed inputs from CSV output file.
-    # def _load_processed_inputs(self):
-    #     result = []
-    #
-    #     if not os.path.isfile(self.out_file_location):
-    #         return result
-    #
-    #     with open(self.out_file_location, 'r', encoding=self.ENCODING) as csv_out_file:
-    #         csv_reader = csv.reader(csv_out_file, delimiter=',')
-    #
-    #         for i, row in enumerate(csv_reader):
-    #             if i == 0:
-    #                 # Skip the first line which is the header.
-    #                 continue
-    #
-    #             if row:
-    #                 result.append(row[0])
-    #
-    #     return result
-    #
-    #
-    # def process_csv(self, ):
-    #
-    #     raw_inputs = self._load_inputs()
-    #
-    #     # Check previous CSV output file.
-    #     # Only request for lines are not processed before.
-    #     processed_inputs = self._load_processed_inputs()
-    #     num_processed_inputs = len(processed_inputs)
-    #
-    #     if not self.force_reprocess:
-    #         raw_inputs = raw_inputs[num_processed_inputs:]
-    #         if (len(processed_inputs)) and raw_inputs != []:
-    #             logger.info('{} already exists in your destination with {} rows. Continue processing from row {} of '
-    #                         'input file.'.format(
-    #                 self.out_file_location, len(processed_inputs), len(processed_inputs) + 1))
-    #         if (len(processed_inputs)) and raw_inputs == []:
-    #             logger.info('{} already exists in your destination with {} rows. All rows from input file have been '
-    #                         'processed.'.format(self.out_file_location, len(processed_inputs)))
-    #     if self.force_reprocess and len(processed_inputs):
-    #         logger.info(
-    #             'Appending results to {} from row {}.'.format(self.out_file_location, len(processed_inputs) + 1))
-    #
-    #     for one_json_response in list_json_response:
-    #         self.write_csv(one_json_response)
-    #
-    #     chunk_counter += 1
-    #     proccessed_row_counter = chunk_counter * self.inputs_per_request
-    #     if len(raw_inputs) - proccessed_row_counter <= 0:
-    #         logger.info('Wrote {} rows to {}. Finished.'.format(
-    #             len(raw_inputs), self.out_file_location))
-    #         logger.debug('{} rows succeed. {} rows failed.'.format(
-    #             len(raw_inputs) - self.error_count, self.error_count))
-    #     else:
-    #         logger.info('Processed {} rows in total. {} rows are left.'.format(
-    #             proccessed_row_counter, len(raw_inputs) - proccessed_row_counter))
-    #
-    #
-    # # Write one API response to output CSV file.
-    # def write_csv(self, one_json_response):
-    #     self.in_file_location = os.path.expanduser(in_file)
-    #     self.out_file_location = os.path.expanduser(out_file)
-    #
-    #     # Check if output file already exist.
-    #     # Always write API response to the same CSV.
-    #     if os.path.dirname(self.out_file_location):
-    #         os.makedirs(os.path.dirname(self.out_file_location), exist_ok=True)
-    #     file_exists = os.path.isfile(self.out_file_location)
-    #     field_names = [
-    #         'Original Input',
-    #         'Date & Time',
-    #         'Company Name',
-    #         'Alias 1',
-    #         'Alias 2',
-    #         'Alias 3',
-    #         'All Aliases',
-    #         'Confidence Level',
-    #         'Confidence',
-    #         'Ticker',
-    #         'Exchange',
-    #         'Majority Owner',
-    #         'FIGI',
-    #         'Related Entity 1 Name',
-    #         'Related Entity 2 Name',
-    #         'Related Entity 3 Name',
-    #         'All Related Entities',
-    #         'Alternative Company Matches',
-    #         'Websites'
-    #     ]
-    #
-    #     date_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
-    #     csv_output = open(self.out_file_location, 'a', newline='', encoding=self.ENCODING)
-    #     writer = csv.DictWriter(
-    #         csv_output,
-    #         fieldnames=field_names,
-    #         extrasaction='ignore',
-    #         delimiter=',',
-    #         quotechar='"',
-    #         quoting=csv.QUOTE_MINIMAL
-    #     )
-    #
-    #     if (not file_exists) or len(self._load_processed_inputs()) == 0:
-    #         writer.writeheader()
-    #         csv_output.flush()
-    #         logger.debug('Wrote headers to {}', format(self.out_file_location))
-    #
-    #     # Transform API response from Json to a dictionary for writing to CSV purpose.
-    #     for result in one_json_response:
-    #         aliases = result.get('Aliases', [])
-    #         related = result.get('Related Entities', [])
-    #         # alternatives = result.get('Alternative Company Matches', [])
-    #
-    #         non_changing_keys = ['Original Input', 'Ticker', 'Exchange',
-    #                              'Company Name', 'Confidence Level', 'Confidence', 'FIGI']
-    #
-    #         csv_row = {
-    #             **{key: value for key, value in result.items() if key in non_changing_keys},
-    #             'Date & Time': date_time,
-    #             'Alias 1': aliases[0] if aliases else None,
-    #             'Alias 2': aliases[1] if len(aliases) > 1 else None,
-    #             'Alias 3': aliases[2] if len(aliases) > 2 else None,
-    #             'All Aliases': '; '.join(aliases),
-    #             'Related Entity 1 Name': related[0] if related else None,
-    #             'Related Entity 2 Name': related[1] if len(related) > 1 else None,
-    #             'Related Entity 3 Name': related[2] if len(related) > 2 else None,
-    #             'All Related Entities': '; '.join(related),
-    #             'Majority Owner': result.get('Majority Owner'),
-    #             'Alternative Company Matches': result.get('Alternative Company Matches'),
-    #             'Websites': result.get('Websites'),
-    #         }
-    #
-    #         writer.writerow(csv_row)
-    #         csv_output.flush()
-    #
-    #         logger.debug('{}: {}'.format(result["Original Input"], result["Company Name"]))
-    #         if "error" in result["Company Name"]:
-    #             self.error_count += 1
-    #     logger.debug('Wrote results to {}'.format(self.out_file_location))
+                except Exception as exc:
+                    logger.warning(f'Bulk processing error: {exc}')
+                    new_num_threads = ceil(num_threads / 2)
+                    if new_num_threads < num_threads:
+                        logger.debug(f'Decreasing number of threads: {num_threads} -> {new_num_threads}')
+                        num_threads = new_num_threads
+
+    @staticmethod
+    def detect_encoding(file_path: str) -> str:
+        """ Detects encoding of given file """
+        detector = UniversalDetector()
+
+        with open(file_path, 'rb') as file:
+            for line in file.readlines():
+                detector.feed(line)
+                if detector.done:
+                    break
+
+        detector.close()
+
+        encoding = detector.result['encoding']
+        logger.debug(f'Detected encoding for file "{file_path}": {encoding}')
+
+        return encoding
+
+    def process_file(
+            self,
+            input_file_path: str,
+            input_file_encoding: Optional[str] = None,
+            input_file_chunk_size: int = 1024 * 100,
+            output_file_path: Optional[str] = None,
+            output_file_encoding: str = 'utf-8',
+            force_reprocess: bool = False,
+            hint: Optional[str] = None,
+    ):
+        """
+        Runs input file (one input per row, TXT or CSV) through ADG Mapping API and produces
+        a CSV file with results.
+
+        Args:
+            input_file_path: path to input file
+            input_file_encoding: encoding of input file
+            input_file_chunk_size: how many bytes read at once from input file
+            output_file_path: path to output file; if empty, input file name + current date will be used
+            output_file_encoding: encoding of output file
+            force_reprocess: whether to re-process already processed rows
+            hint: optional value which may help mapping inputs (i.e. "medical", "bank", "agriculture" etc)
+        """
+        logger.debug(f'Starting processing "{input_file_path}"')
+
+        # ---- create output file ----
+        if not output_file_path:
+            # take input file name plus date as output file name.
+            in_file_dir, in_file_name = os.path.split(input_file_path)
+            output_file_path = os.path.join(
+                in_file_dir,
+                f'{os.path.splitext(in_file_name)[0]}-{datetime.datetime.now().strftime("%Y-%m-%d")}.csv'
+            )
+
+        out_dir = os.path.dirname(output_file_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        logger.debug(f'Output to "{output_file_path}"')
+
+        # ---- retrieve list of already processed inputs ----
+        processed_inputs = set()
+
+        if not force_reprocess and os.path.isfile(output_file_path):
+            with open(output_file_path, 'r', encoding=output_file_encoding) as out_file:
+                csv_reader = csv.reader(out_file, delimiter=',')
+                for i, row in enumerate(csv_reader):
+                    if i == 0 or not row:  # skip header and empty rows
+                        continue
+
+                    processed_inputs.add(row[0])
+
+        if processed_inputs:
+            logger.debug(f'Found {len(processed_inputs)} already processed inputs, skipping')
+
+        # ---- process inputs ----
+        input_file_encoding = input_file_encoding or self.detect_encoding(input_file_path)
+        output_file_encoding = output_file_encoding or input_file_encoding
+
+        with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, open(output_file_path, 'a', encoding=output_file_encoding) as out_file:
+            writer = csv.DictWriter(
+                out_file,
+                fieldnames=self.CSV_FIELDS.keys(),
+                extrasaction='ignore',
+                delimiter=',',
+                quotechar='"',
+                quoting=csv.QUOTE_MINIMAL,
+            )
+
+            if not processed_inputs:
+                writer.writeheader()
+
+            # just in case the file is big, we read it by chunks
+            while True:
+                chunk = {inp.rstrip('\n') for inp in in_file.readlines(input_file_chunk_size)}
+                if not chunk:
+                    break
+
+                logger.debug(f'Processing inputs chunk of size {len(chunk)}: {chunk}')
+
+                # remove aready processed rows
+                queue = chunk - processed_inputs
+
+                for result in self.bulk_query(queue, hint=hint):
+                    logger.debug(f'Writing result: {str(result)[:200]}')
+                    writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
+                    out_file.flush()
+
+                processed_inputs = processed_inputs | queue
+                logger.debug(f'Processed total {len(processed_inputs)} unique inputs')
+
+            logger.debug('Processing complete')
 
 
 def positive_integer(value: str) -> int:
@@ -376,11 +347,10 @@ def positive_integer(value: str) -> int:
 
 
 if __name__ == '__main__':
-    start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
-    start = time.time()
-    now_str = datetime.datetime.now().strftime('%Y-%m-%d')
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s')
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-    # Parse command-line input arguments.
     parser = ArgumentParser(
         description=f"""
             Examples:
@@ -389,30 +359,18 @@ if __name__ == '__main__':
         """,
         formatter_class=RawDescriptionHelpFormatter
     )
+    # ---- AdgApi args ----
     parser.add_argument(
         '-e', '--endpoint',
-        required=True,
         help='Type of mapper',
         default='merchant-mapper',
         dest='endpoint',
     )
     parser.add_argument(
         '-k', '--key',
-        required=True,
         help='ADG API application key',
         default=AdgApi.DEMO_KEY,
         dest='api_key',
-    )
-    parser.add_argument(
-        '-o', '--out',
-        help='Path to output file',
-        dest='out_file')
-    parser.add_argument(
-        '-F', '--force',
-        help='Re-process results that already exist in the output file. (Adds new CSV rows.)',
-        default=False,
-        action='store_const', const=True,
-        dest='force_reprocess',
     )
     parser.add_argument(
         '-n', '--num-threads',
@@ -426,40 +384,62 @@ if __name__ == '__main__':
         help=f'Number of retries per request. Max: {AdgApi.MAX_NUM_RETRIES}',
         default=AdgApi.DEFAULT_NUM_RETRIES,
         type=positive_integer,
+        dest='num_retries',
+    )
+
+    # ---- process_file args ----
+    parser.add_argument(
+        '--encoding',
+        help=f'Input file encoding (will auto-detect if this option is missing)',
+        type=str,
+        dest='input_file_encoding',
     )
     parser.add_argument(
-        '-t', '--timeout',
-        help='API request timeout (in seconds)',
-        default=AdgApi.RESPONSE_TIMEOUT,
-        type=positive_integer,
+        '-o', '--out',
+        help='Path to output file',
+        dest='output_file_path')
+    parser.add_argument(
+        '-F', '--force',
+        help='Re-process results that already exist in the output file. (Adds new CSV rows.)',
+        default=False,
+        action='store_const', const=True,
+        dest='force_reprocess',
     )
     parser.add_argument(
         '-th', '--type-hint',
         help='Any hint about input data ("company", "brand", ...)',
         default=None,
-        dest='hint',)
+        dest='hint',
+    )
     parser.add_argument(
         help='Path to input file',
-        dest='in_file',
+        dest='input_file_path',
     )
     args = parser.parse_args()
 
-    if not os.path.isfile(args.in_file):
-        logger.error(f'Input file does not exist: {args.in_file}')
+    print(f"""                                                                              
+ _____ _ _                   _   _            ____      _          _____                 
+|  _  | | |_ ___ ___ ___ ___| |_|_|_ _ ___   |    \ ___| |_ ___   |   __|___ ___ _ _ ___ 
+|     | |  _| -_|  _|   | .'|  _| | | | -_|  |  |  | .'|  _| .'|  |  |  |  _| . | | | . |
+|__|__|_|_| |___|_| |_|_|__,|_| |_|\_/|___|  |____/|__,|_| |__,|  |_____|_| |___|___|  _|
+                                                                                    |_|
+                                    {AdgApi.SUPPORT_EMAIL}  
+    """)
+
+    start_time = datetime.datetime.now()
+    logger.info(f'Starting mapping')
+
+    if not os.path.isfile(args.input_file_path):
+        logger.error(f'Input file does not exist: {args.input_file_path}')
         sys.exit()
 
-    # Take input file name plus date as output file name.
-    if not args.out_file:
-        in_file_dir, in_file_name = os.path.split(args.in_file)
-        args.out_file = os.path.join(
-            in_file_dir,
-            f'{os.path.splitext(in_file_name)[0]}-{now_str}.csv'
-        )
+    AdgApi(**{
+        arg: value for arg, value in vars(args).items()
+        if arg in ['endpoint', 'api_key', 'num_threads', 'num_retries']
+    }).process_file(**{
+        arg: value for arg, value in vars(args).items() if arg in ['input_file_path', 'input_file_encoding', 'output_file_path', 'force_reprocess', 'hint']
+    })
 
-    AdgApi(**vars(args)).bulk_query()
-    end_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S')
-    end = time.time()
-
-    print(f'Start time: {start_time}')
-    print(f'End time: {end_time}')
-    print(f'Elapsed (in sec): {end-start:.2f}')
+    end_time = datetime.datetime.now()
+    logger.info(f'All done')
+    logger.info(f'Elapsed: {(end_time-start_time).seconds:.0f}s')
