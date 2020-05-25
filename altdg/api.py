@@ -135,7 +135,7 @@ class AdgApi:
 
         return inp
 
-    def query(self, value: str, hint: Optional[str] = None) -> dict:
+    def query(self, value: str, hint: Optional[str] = None, cleanup: bool = True) -> dict:
         """
         Make a single request to ADG API.
 
@@ -159,6 +159,8 @@ class AdgApi:
         if hint:
             headers['X-Type-Hint'] = hint
 
+        headers['X-Clean-Input'] = cleanup
+
         for n_attempt in range(1, self.num_retries+1):
             if n_attempt > 1:
                 logger.warning(f'Retrying (attempt #{n_attempt}): {value}')
@@ -177,7 +179,7 @@ class AdgApi:
                 logger.error(f'API request error: {exc}. Please contact {self.SUPPORT_EMAIL} for help '
                              'if this problem persists.')
 
-                if response.status_code == 401:
+                if 'response' in vars() and response.status_code == 401:  # NOQA
                     logger.warning(f'Authentication error. Check your API key "{self.api_key}"'
                                    f' or use demo key "{self.DEMO_KEY}"')
                     raise
@@ -187,13 +189,15 @@ class AdgApi:
         logger.error(f'Could not process "{value}"')
         raise
 
-    def bulk_query(self, values: Iterable[str], hint: Optional[str] = None) -> Iterator[dict]:
+    def bulk_query(self, values: Iterable[str], hint: Optional[str] = None,
+                   cleanup: bool = True) -> Iterator[dict]:
         """
         Processes `values` in bulk using multithreading.
 
         Args:
             values: collection of strings to map
             hint: any string which may help identifying input type ("company", "agriculture", "brand" etc)
+            cleanup: whether to clean values
 
         Yields:
             dict of mapped info (see `query` method)
@@ -206,7 +210,7 @@ class AdgApi:
             while True:
                 try:
                     yield from ThreadPoolExecutor(max_workers=num_threads).map(
-                            lambda value: self.query(value, hint=hint),
+                            lambda value: self.query(value, hint=hint, cleanup=cleanup),
                             filter(None, chunk)  # remove empty inputs
                     )
 
@@ -250,6 +254,7 @@ class AdgApi:
             output_file_encoding: str = 'utf-8',
             force_reprocess: bool = False,
             hint: Optional[str] = None,
+            cleanup: bool = True,
     ):
         """
         Runs input file (one input per row, TXT or CSV) through ADG Mapping API and produces
@@ -263,6 +268,7 @@ class AdgApi:
             output_file_encoding: encoding of output file
             force_reprocess: whether to re-process already processed rows
             hint: optional value which may help mapping inputs (i.e. "medical", "bank", "agriculture" etc)
+            cleanup: whether to clean inputs
         """
         logger.debug(f'Starting processing "{input_file_path}"')
 
@@ -323,7 +329,7 @@ class AdgApi:
                 # remove aready processed rows
                 queue = chunk - processed_inputs
 
-                for result in self.bulk_query(queue, hint=hint):
+                for result in self.bulk_query(queue, hint=hint, cleanup=cleanup):
                     logger.debug(f'Writing result: {str(result)[:200]}')
                     writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
                     out_file.flush()
@@ -412,6 +418,15 @@ if __name__ == '__main__':
         dest='hint',
     )
     parser.add_argument(
+        '-c', '--cleanup',
+        choices=['high', 'low'],
+        help='How much input cleanup should be done. If your inputs contain a lot of noize '
+             '(meaningless information), set this to "high"; if your inputs are rather good '
+             '(for example, contain exact titles), set this option to "low".',
+        deafult='high',
+        dest='cleanup',
+    )
+    parser.add_argument(
         help='Path to input file',
         dest='input_file_path',
     )
@@ -437,7 +452,7 @@ if __name__ == '__main__':
         arg: value for arg, value in vars(args).items()
         if arg in ['endpoint', 'api_key', 'num_threads', 'num_retries']
     }).process_file(**{
-        arg: value for arg, value in vars(args).items() if arg in ['input_file_path', 'input_file_encoding', 'output_file_path', 'force_reprocess', 'hint']
+        arg: value for arg, value in vars(args).items() if arg in ['input_file_path', 'input_file_encoding', 'output_file_path', 'force_reprocess', 'hint', 'cleanup']
     })
 
     end_time = datetime.datetime.now()
