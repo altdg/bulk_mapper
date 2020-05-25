@@ -16,7 +16,7 @@ def test_cli_tool_on_live_api():
 
     result = subprocess.run([
         'python', path.join(pth, 'altdg', 'api.py'),
-        '-e', 'merchants',
+        '-e', 'merchant-mapper',
         '-k', api_key,
         path.join(pth, 'sample-merchants.txt'),
     ])
