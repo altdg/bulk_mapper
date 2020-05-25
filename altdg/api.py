@@ -305,7 +305,8 @@ class AdgApi:
         input_file_encoding = input_file_encoding or self.detect_encoding(input_file_path)
         output_file_encoding = output_file_encoding or input_file_encoding
 
-        with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, open(output_file_path, 'a', encoding=output_file_encoding) as out_file:
+        with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, \
+                open(output_file_path, 'a', encoding=output_file_encoding) as out_file:
             writer = csv.DictWriter(
                 out_file,
                 fieldnames=self.CSV_FIELDS.keys(),
@@ -432,13 +433,13 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
 
-    print(fr"""                                                                              
- _____ _ _                   _   _            ____      _          _____                 
-|  _  | | |_ ___ ___ ___ ___| |_|_|_ _ ___   |    \ ___| |_ ___   |   __|___ ___ _ _ ___ 
+    print(fr"""
+ _____ _ _                   _   _            ____      _          _____
+|  _  | | |_ ___ ___ ___ ___| |_|_|_ _ ___   |    \ ___| |_ ___   |   __|___ ___ _ _ ___
 |     | |  _| -_|  _|   | .'|  _| | | | -_|  |  |  | .'|  _| .'|  |  |  |  _| . | | | . |
 |__|__|_|_| |___|_| |_|_|__,|_| |_|\_/|___|  |____/|__,|_| |__,|  |_____|_| |___|___|  _|
                                                                                     |_|
-                                    {AdgApi.SUPPORT_EMAIL}  
+                                    {AdgApi.SUPPORT_EMAIL}
     """)
 
     start_time = datetime.datetime.now()
@@ -452,7 +453,10 @@ if __name__ == '__main__':
         arg: value for arg, value in vars(args).items()
         if arg in ['endpoint', 'api_key', 'num_threads', 'num_retries']
     }).process_file(**{
-        arg: value for arg, value in vars(args).items() if arg in ['input_file_path', 'input_file_encoding', 'output_file_path', 'force_reprocess', 'hint', 'cleanup']
+        arg: value for arg, value in vars(args).items() if arg in [
+            'input_file_path', 'input_file_encoding', 'output_file_path', 'force_reprocess',
+            'hint', 'cleanup',
+        ]
     })
 
     end_time = datetime.datetime.now()
