@@ -423,7 +423,7 @@ if __name__ == '__main__':
         help='How much input cleanup should be done. If your inputs contain a lot of noize '
              '(meaningless information), set this to "high"; if your inputs are rather good '
              '(for example, contain exact titles), set this option to "low".',
-        deafult='high',
+        default='high',
         dest='cleanup',
     )
     parser.add_argument(

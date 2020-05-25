@@ -15,7 +15,7 @@ def test_cli_tool_on_live_api():
     subprocess.run(['rm', path.join(pth, 'sample-merchants-*.csv')])
 
     result = subprocess.run([
-        'python', path.join(pth, 'adg_api_bulkMapper.py'),
+        'python', path.join(pth, 'altdg', 'api.py'),
         '-e', 'merchants',
         '-k', api_key,
         path.join(pth, 'sample-merchants.txt'),

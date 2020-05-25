@@ -32,13 +32,12 @@ Python 3.6+
 Run the following commands in your shell:
 
 ```sh
-# clone the repo
-git clone https://github.com/altdg/bulk_mapper adg
+# you may install "altdg" package directly from repo
+pip install git+https://github.com/altdg/bulk_mapper.git
 
+# if you want to get samples for testing, clone the repo
+git clone https://github.com/altdg/bulk_mapper.git adg
 cd adg
-
-# install requirements
-pip install -r requirements.txt
 ```
 
 Now everything is ready to run the tool.
