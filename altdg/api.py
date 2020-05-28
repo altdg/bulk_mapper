@@ -19,13 +19,13 @@ import os
 import sys
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from concurrent.futures.thread import ThreadPoolExecutor
-from math import ceil
 from operator import itemgetter
+from random import randrange
+from time import sleep
 
 import requests
 from chardet import UniversalDetector
 from typing import Optional, Iterator, Iterable, Any
-
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +64,13 @@ class AdgApi:
 
     # ---- failure handling ----
     RESPONSE_TIMEOUT = 30  # max time to wait for each query to complete
-    DEFAULT_NUM_RETRIES = 2
-    MAX_NUM_RETRIES = 10
+    DEFAULT_NUM_RETRIES = 7
+    RETRY_INTERVAL = 15  # if attempt 1 failed, wait 0-15s, if attempt 2 failed - wait 15-30s etc
 
     # ---- csv file fields mappings  ----
     CSV_FIELDS = {
         # CSV file field: API output mapping function
         'Original Input': itemgetter('Original Input'),
-        'Date & Time': lambda result: datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S'),
         'Company Name': itemgetter('Company Name'),
         'Alias 1': lambda result: get_or_default(result['Aliases'], 0, ''),
         'Alias 2': lambda result: get_or_default(result['Aliases'], 1, ''),
@@ -89,6 +88,7 @@ class AdgApi:
         'All Related Entities': lambda result: '; '.join(result['Related Entities']),
         'Alternative Company Matches': lambda result: ': '.join(result['Alternative Company Matches']),
         'Websites': lambda result: '; '.join(result['Websites']),
+        'Date & Time': lambda result: datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S'),
     }
 
     def __init__(
@@ -113,14 +113,11 @@ class AdgApi:
 
         self.endpoint = endpoint
         self.api_key = api_key
+        self.num_retries = num_retries
 
         self.num_threads = min(num_threads, self.MAX_NUM_THREADS)
         if num_threads > self.MAX_NUM_THREADS:
             logger.warning('Number of requests to process in parallel was set to its max of {self.num_threads}.')
-
-        self.num_retries = min(num_retries, self.MAX_NUM_RETRIES)
-        if num_retries > self.MAX_NUM_RETRIES:
-            logger.warning(f'Number of retries was set to its max of {self.num_retries}.')
 
     def prepare_input(self, inp: str) -> str:
         """
@@ -173,18 +170,22 @@ class AdgApi:
                     timeout=self.RESPONSE_TIMEOUT,
                 )
                 response.raise_for_status()
-
                 return response.json()[0]
-            except Exception as exc:
-                logger.error(f'API request error: {exc}. Please contact {self.SUPPORT_EMAIL} for help '
-                             'if this problem persists.')
 
-                if 'response' in vars() and response.status_code == 401:  # NOQA
-                    logger.warning(f'Authentication error. Check your API key "{self.api_key}"'
-                                   f' or use demo key "{self.DEMO_KEY}"')
+            except Exception as exc:
+                logger.warning(f'API request error: {exc}. Please contact {self.SUPPORT_EMAIL} for help '
+                               'if this problem persists.')
+
+                # raise exception on 4xx errors
+                if 'response' in vars() and 400 <= response.status_code < 500:  # NOQA
                     raise
 
-                continue
+                wait = randrange(
+                    self.RETRY_INTERVAL*(n_attempt-1),
+                    self.RETRY_INTERVAL*n_attempt
+                )
+                logger.debug(f'Waiting {wait}s before another attempt')
+                sleep(wait)
 
         logger.error(f'Could not process "{value}"')
         raise
@@ -203,29 +204,10 @@ class AdgApi:
             dict of mapped info (see `query` method)
 
         """
-        num_threads = self.num_threads
-
-        # process all values by chunks, decrease num of threads if any errors
-        for chunk in map(list, chunks(values, self.num_threads)):
-            while True:
-                try:
-                    yield from ThreadPoolExecutor(max_workers=num_threads).map(
-                            lambda value: self.query(value, hint=hint, cleanup=cleanup),
-                            filter(None, chunk)  # remove empty inputs
-                    )
-
-                    if num_threads < self.num_threads:
-                        num_threads += 1
-                        logger.debug(f'Increasing number of threads to {num_threads}')
-
-                    break
-
-                except Exception as exc:
-                    logger.warning(f'Bulk processing error: {exc}')
-                    new_num_threads = ceil(num_threads / 2)
-                    if new_num_threads < num_threads:
-                        logger.debug(f'Decreasing number of threads: {num_threads} -> {new_num_threads}')
-                        num_threads = new_num_threads
+        yield from ThreadPoolExecutor(max_workers=self.num_threads).map(
+            lambda value: self.query(value, hint=hint, cleanup=cleanup),
+            filter(None, values)  # remove empty inputs
+        )
 
     @staticmethod
     def detect_encoding(file_path: str) -> str:
@@ -308,7 +290,7 @@ class AdgApi:
             output_file_encoding = 'utf-8-sig' if os.name == 'nt' else 'utf-8'
 
         with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, \
-                open(output_file_path, 'a', encoding=output_file_encoding, newline='') as out_file:
+                open(output_file_path, 'w' if force_reprocess else 'a', encoding=output_file_encoding, newline='') as out_file:
             writer = csv.DictWriter(
                 out_file,
                 fieldnames=self.CSV_FIELDS.keys(),
@@ -327,13 +309,13 @@ class AdgApi:
                 if not chunk:
                     break
 
-                logger.debug(f'Processing inputs chunk of size {len(chunk)}: {chunk}')
+                logger.debug(f'Processing inputs chunk of size {len(chunk)}')
 
                 # remove aready processed rows
                 queue = chunk - processed_inputs
 
                 for result in self.bulk_query(queue, hint=hint, cleanup=cleanup):
-                    logger.debug(f'Writing result: {str(result)[:200]}')
+                    logger.debug(f'Writing result { {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
                     writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
                     out_file.flush()
 
@@ -356,10 +338,6 @@ def positive_integer(value: str) -> int:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s')
-    logging.getLogger("requests").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-
     parser = ArgumentParser(
         description=f"""
             Examples:
@@ -390,10 +368,18 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '-r', '--num-retries',
-        help=f'Number of retries per request. Max: {AdgApi.MAX_NUM_RETRIES}',
+        help=f'Number of retries if request returns 5xx error.'
+             f'Delay between retries increments after each unsuccessful attempt.',
         default=AdgApi.DEFAULT_NUM_RETRIES,
         type=positive_integer,
         dest='num_retries',
+    )
+    parser.add_argument(
+        '-l', '--log-level',
+        help=f'Log level',
+        default='info',
+        type=lambda level: getattr(logging, level.upper()),
+        dest='log_level',
     )
 
     # ---- process_file args ----
@@ -409,7 +395,7 @@ if __name__ == '__main__':
         dest='output_file_path')
     parser.add_argument(
         '-F', '--force',
-        help='Re-process results that already exist in the output file. (Adds new CSV rows.)',
+        help='Process all inputs even if some results already exist in the output file',
         default=False,
         action='store_const', const=True,
         dest='force_reprocess',
@@ -443,6 +429,10 @@ if __name__ == '__main__':
                                                                                     |_|
                                     {AdgApi.SUPPORT_EMAIL}
     """)
+
+    logging.basicConfig(level=args.log_level, format='%(asctime)s %(levelname)-8s %(message)s')
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
     start_time = datetime.datetime.now()
     logger.info(f'Starting mapping')
