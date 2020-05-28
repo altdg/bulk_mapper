@@ -251,7 +251,7 @@ class AdgApi:
             input_file_encoding: Optional[str] = None,
             input_file_chunk_size: int = 1024 * 100,
             output_file_path: Optional[str] = None,
-            output_file_encoding: str = 'utf-8',
+            output_file_encoding: Optional[str] = None,
             force_reprocess: bool = False,
             hint: Optional[str] = None,
             cleanup: bool = True,
@@ -265,7 +265,8 @@ class AdgApi:
             input_file_encoding: encoding of input file
             input_file_chunk_size: how many bytes read at once from input file
             output_file_path: path to output file; if empty, input file name + current date will be used
-            output_file_encoding: encoding of output file
+            output_file_encoding: encoding of output file (by default 'utf-8-sih' on Windows, 'utf-8'
+                on other platforms)
             force_reprocess: whether to re-process already processed rows
             hint: optional value which may help mapping inputs (i.e. "medical", "bank", "agriculture" etc)
             cleanup: whether to clean inputs
@@ -303,10 +304,11 @@ class AdgApi:
 
         # ---- process inputs ----
         input_file_encoding = input_file_encoding or self.detect_encoding(input_file_path)
-        output_file_encoding = output_file_encoding or input_file_encoding
+        if not output_file_encoding:
+            output_file_encoding = 'utf-8-sig' if os.name == 'nt' else 'utf-8'
 
         with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, \
-                open(output_file_path, 'a', encoding=output_file_encoding) as out_file:
+                open(output_file_path, 'a', encoding=output_file_encoding, newline='') as out_file:
             writer = csv.DictWriter(
                 out_file,
                 fieldnames=self.CSV_FIELDS.keys(),
