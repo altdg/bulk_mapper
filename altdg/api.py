@@ -128,7 +128,7 @@ class AdgApi:
 
         if len(inp) > self.MAX_INPUT_LENGTH:
             inp = inp[:self.MAX_INPUT_LENGTH]
-            logger.warning(f'Truncated input to {self.MAX_INPUT_LENGTH} chars: "{inp}"')
+            logger.warning(f'Input too long, truncated input to {self.MAX_INPUT_LENGTH} chars: "{inp}"')
 
         return inp
 
@@ -160,7 +160,7 @@ class AdgApi:
 
         for n_attempt in range(1, self.num_retries+1):
             if n_attempt > 1:
-                logger.warning(f'Retrying (attempt #{n_attempt}): {value}')
+                logger.debug(f'Retrying (attempt #{n_attempt}): {value}')
 
             try:
                 response = requests.post(
@@ -173,8 +173,7 @@ class AdgApi:
                 return response.json()[0]
 
             except Exception as exc:
-                logger.warning(f'API request error: {exc}. Please contact {self.SUPPORT_EMAIL} for help '
-                               'if this problem persists.')
+                logger.debug(f'Error when mapping {payload}: {exc}')
 
                 # raise exception on 4xx errors
                 if 'response' in vars() and 400 <= response.status_code < 500:  # NOQA
@@ -187,7 +186,8 @@ class AdgApi:
                 logger.debug(f'Waiting {wait}s before another attempt')
                 sleep(wait)
 
-        logger.error(f'Could not process "{value}"')
+        logger.warning(f'Could not process "{value}". Please contact {self.SUPPORT_EMAIL} for help '
+                     f'if this problem persists.')
         raise
 
     def bulk_query(self, values: Iterable[str], hint: Optional[str] = None,
@@ -315,7 +315,7 @@ class AdgApi:
                 queue = chunk - processed_inputs
 
                 for result in self.bulk_query(queue, hint=hint, cleanup=cleanup):
-                    logger.debug(f'Writing result { {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
+                    logger.info(f'Writing result { {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
                     writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
                     out_file.flush()
 
