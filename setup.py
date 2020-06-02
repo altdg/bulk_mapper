@@ -10,7 +10,7 @@ setup(
     name='altdg',
     description='Utility libraries from Alternative Data Group',
     url='https://github.com/altdg/bulk_mapper',
-    version='1.0',
+    version='1.0.1',
     packages=find_packages(),
     include_package_data=True,
     install_requires=['requests', 'chardet'],
@@ -26,7 +26,7 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.6',
         'Topic :: Internet :: WWW/HTTP',
     ],
 )
