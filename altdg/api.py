@@ -187,7 +187,7 @@ class AdgApi:
                 sleep(wait)
 
         logger.warning(f'Could not process "{value}". Please contact {self.SUPPORT_EMAIL} for help '
-                     f'if this problem persists.')
+                       f'if this problem persists.')
         raise
 
     def bulk_query(self, values: Iterable[str], hint: Optional[str] = None,
@@ -290,7 +290,8 @@ class AdgApi:
             output_file_encoding = 'utf-8-sig' if os.name == 'nt' else 'utf-8'
 
         with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, \
-                open(output_file_path, 'w' if force_reprocess else 'a', encoding=output_file_encoding, newline='') as out_file:
+                open(output_file_path, 'w' if force_reprocess else 'a',
+                     encoding=output_file_encoding, newline='') as out_file:
             writer = csv.DictWriter(
                 out_file,
                 fieldnames=self.CSV_FIELDS.keys(),
@@ -315,7 +316,8 @@ class AdgApi:
                 queue = chunk - processed_inputs
 
                 for result in self.bulk_query(queue, hint=hint, cleanup=cleanup):
-                    logger.info(f'Writing result { {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
+                    logger.info(f'Writing result '
+                                f'{ {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
                     writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
                     out_file.flush()
 
