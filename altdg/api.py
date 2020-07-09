@@ -132,7 +132,7 @@ class AdgApi:
 
         return inp
 
-    def query(self, value: str, hint: Optional[str] = None, cleanup: bool = True) -> dict:
+    def query(self, value: str, headers, hint: Optional = None, cleanup: bool = True) -> dict:
         """
         Make a single request to ADG API.
 
@@ -147,14 +147,26 @@ class AdgApi:
                 ... <additional fields, refer to ADG API docs> ...
             }
         """
+
         if not value:
             raise ValueError(f'Empty input: {value}')
 
-        payload = json.dumps([self.prepare_input(value)])
 
-        headers = self.HEADERS
+        #headers = self.HEADERS
+
         if hint:
             headers['X-Type-Hint'] = hint
+
+        if type(value) == tuple:
+            headers['X-Type-Hint'] = value[1]
+            hint = value[1]
+            value = value[0]
+
+
+#        payload = json.dumps([self.prepare_input(value)])
+        payload = json.dumps([value])
+
+
 
         headers['X-Clean-Input'] = cleanup
 
@@ -163,6 +175,7 @@ class AdgApi:
                 logger.debug(f'Retrying (attempt #{n_attempt}): {value}')
 
             try:
+                headers['X-Type-Hint'] = hint
                 response = requests.post(
                     f'{self.API_URL}/{self.endpoint}?X_User_Key={self.api_key}',
                     data=payload,
@@ -170,6 +183,7 @@ class AdgApi:
                     timeout=self.RESPONSE_TIMEOUT,
                 )
                 response.raise_for_status()
+                print(headers['X-Type-Hint'] +  " " + hint)
                 return response.json()[0]
 
             except Exception as exc:
@@ -205,7 +219,7 @@ class AdgApi:
 
         """
         yield from ThreadPoolExecutor(max_workers=self.num_threads).map(
-            lambda value: self.query(value, hint=hint, cleanup=cleanup),
+            lambda value: self.query(value, self.HEADERS, hint=hint, cleanup=cleanup),
             filter(None, values)  # remove empty inputs
         )
 
@@ -305,24 +319,32 @@ class AdgApi:
                 writer.writeheader()
 
             # just in case the file is big, we read it by chunks
-            while True:
-                chunk = {inp.rstrip('\n') for inp in in_file.readlines(input_file_chunk_size)}
-                if not chunk:
-                    break
+            chunk = []
+            hintwords = []
+            #while True:
+            for inp in csv.reader(in_file, delimiter=','):
+                if len(inp) > 1:
+                    chunk.append((inp[0], inp[1]))
+                    #hintwords.append(inp[1])
+                else:
+                    chunk.append(inp[0].rstrip('\n'))
 
-                logger.debug(f'Processing inputs chunk of size {len(chunk)}')
+            #chunk = {inp.rstrip('\n') for inp in in_file.readlines(input_file_chunk_size)}
 
-                # remove aready processed rows
-                queue = chunk - processed_inputs
 
-                for result in self.bulk_query(queue, hint=hint, cleanup=cleanup):
-                    logger.info(f'Writing result '
-                                f'{ {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
-                    writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
-                    out_file.flush()
+            logger.debug(f'Processing inputs chunk of size {len(chunk)}')
 
-                processed_inputs = processed_inputs | queue
-                logger.debug(f'Processed total {len(processed_inputs)} unique inputs')
+            # remove aready processed rows
+            # queue = chunk - processed_inputs
+            queue = chunk
+            for result in self.bulk_query(queue, hint=hint, cleanup=cleanup):
+                logger.info(f'Writing result '
+                            f'{ {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
+                writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
+                out_file.flush()
+
+            #processed_inputs = processed_inputs | queue
+            logger.debug(f'Processed total {len(processed_inputs)} unique inputs')
 
             logger.debug('Processing complete')
 
