@@ -22,6 +22,7 @@ from concurrent.futures.thread import ThreadPoolExecutor
 from operator import itemgetter
 from random import randrange
 from time import sleep
+from copy import copy
 
 import requests
 from chardet import UniversalDetector
@@ -153,13 +154,14 @@ class AdgApi:
 
 
         #headers = self.HEADERS
-
+        headers1 = copy(headers)
+        headers=headers1
         if hint:
             headers['X-Type-Hint'] = hint
 
         if type(value) == tuple:
             headers['X-Type-Hint'] = value[1]
-            hint = value[1]
+            # hint = value[1]
             value = value[0]
 
 
@@ -175,7 +177,7 @@ class AdgApi:
                 logger.debug(f'Retrying (attempt #{n_attempt}): {value}')
 
             try:
-                headers['X-Type-Hint'] = hint
+
                 response = requests.post(
                     f'{self.API_URL}/{self.endpoint}?X_User_Key={self.api_key}',
                     data=payload,
@@ -183,7 +185,7 @@ class AdgApi:
                     timeout=self.RESPONSE_TIMEOUT,
                 )
                 response.raise_for_status()
-                print(headers['X-Type-Hint'] +  " " + hint)
+                print(headers['X-Type-Hint'])
                 return response.json()[0]
 
             except Exception as exc:
@@ -218,8 +220,10 @@ class AdgApi:
             dict of mapped info (see `query` method)
 
         """
+        from copy import copy
+
         yield from ThreadPoolExecutor(max_workers=self.num_threads).map(
-            lambda value: self.query(value, self.HEADERS, hint=hint, cleanup=cleanup),
+            lambda value: self.query(value, copy(self.HEADERS), hint=hint, cleanup=cleanup),
             filter(None, values)  # remove empty inputs
         )
 
