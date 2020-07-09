@@ -32,12 +32,16 @@ Python 3.6+
 Run the following commands in your shell:
 
 ```sh
-# you may install "altdg" package directly from repo
+# install as usual python package
+pip install altdg
+
+# ... or install "altdg" package directly from repo
 pip install git+https://github.com/altdg/bulk_mapper.git
 
-# if you want to get samples for testing, clone the repo
-git clone https://github.com/altdg/bulk_mapper.git AltDG
-cd AltDG
+# ... or if you want to get samples for testing, clone the repo
+git clone https://github.com/altdg/bulk_mapper.git altdg
+cd altdg
+pip install -r requirements.txt
 ```
 
 Now everything is ready to run the tool.
@@ -123,17 +127,9 @@ Arguments:
 * `-th <hint>` `--type-hint` Improves the accuracy by providing the industry name or any keyword hint relevant to the inputs. E.g. `-th "medical"`
 
 
-## Development
+## Usage as library
 
-Having [pip](https://pip.pypa.io/en/stable/installing/) for your python3 environment, clone this repo, cd into its directory, and run:
-
-```sh
-pip install -r requirements.txt
-```
-
-### Usage as library
-
-You may use `AltdgApi` class from your python program:
+You may use `AltdgAPI` class from your python program:
 
 ```python
 from altdg.api import AltdgAPI
@@ -144,11 +140,21 @@ mapper = AltdgAPI('domain-mapper', api_key='f816b9125492069f7f2e3b1cc60659f0')
 # single query
 print(mapper.query('abc.com'))
 
-# bulk query
-for result in mapper.bulk_query(['yahoo.com', 'amazon.com']):
-    print(result)
-```
+# single query with hint
+print(mapper.query('abc.com', hint='news'))
 
+# bulk query
+print(mapper.bulk_query(['yahoo.com', 'amazon.com']))
+
+# bulk query with same hint for all inputs
+print(mapper.bulk_query(['yahoo.com', 'amazon.com'], hint='company'))
+
+# bulk query with overwriting hint
+print(mapper.bulk_query([
+    ('purple mint', 'restaurant'),  # (input, hint) tuple
+    'amazon',  # just input with base hint
+], hint='company'))  # base hint
+```
 
 ## Support
 
