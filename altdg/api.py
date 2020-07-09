@@ -2,14 +2,13 @@
 """
 2020 Alternative Data Group. All Rights Reserved.
 
-Module for running input file through ADG's mapper API and writing results to CSV file.
+Module for running input file through AltDG's mapper API and writing results to CSV file.
 
 Requires python >= 3.6.
 Install dependencies with 'pip install requirements.txt'.
 
-Help: python -m adg.api -h
+Help: python -m altdg.api -h
 """
-
 import argparse
 import csv
 import datetime
@@ -63,7 +62,7 @@ class ChunkedDictReader(csv.DictReader):
                 yield chunk
 
 
-class AdgApi:
+class AltdgAPI:
     # ---- access settings ----
     API_URL = 'https://api-2445582026130.production.gw.apicast.io/'
     DEMO_KEY = 'f816b9125492069f7f2e3b1cc60659f0'
@@ -119,7 +118,7 @@ class AdgApi:
         num_retries: int = DEFAULT_NUM_RETRIES,
     ):
         """
-        Initialize ADG API mapper with some inter-requests settings.
+        Initialize AltDG API mapper with some inter-requests settings.
 
         Args:
             endpoint: mapper's endpoint ("merchant-mapper", "domain-mapper", etc) - see docs
@@ -128,7 +127,7 @@ class AdgApi:
             num_retries: how many retries to perform if case of failure
         """
         if endpoint in ['merchants', 'domains', 'products']:
-            raise ValueError(f'Outdated endpoint value "{endpoint}", use one from ADG API docs '
+            raise ValueError(f'Outdated endpoint value "{endpoint}", use one from AltDG API docs '
                              f'("merchant-mapper", "domain-mapper" etc')
 
         self.endpoint = endpoint
@@ -154,7 +153,7 @@ class AdgApi:
 
     def query(self, value: str, hint: Optional[str] = None, clean: bool = True) -> dict:
         """
-        Make a single request to ADG API.
+        Make a single request to AltDG API.
 
         Args:
             value: text string to map ("amzn", "PURCHASE DEBIT CARD XXXX-2211 ETSY.COM", ...)
@@ -163,8 +162,8 @@ class AdgApi:
         Returns:
             dict {
                 'Original Input': ...,
-                'Company Name': company name retrieved from ADG API,
-                ... <additional fields, refer to ADG API docs> ...
+                'Company Name': company name retrieved from AltDG API,
+                ... <additional fields, refer to AltDG API docs> ...
             }
         """
         if isinstance(value, tuple):
@@ -268,7 +267,7 @@ class AdgApi:
             clean: bool = True,
     ):
         """
-        Runs input file (one input per row, TXT or CSV) through ADG Mapping API and produces
+        Runs input file (one input per row, TXT or CSV) through AltDG Mapping API and produces
         a CSV file with results.
 
         Args:
@@ -368,12 +367,12 @@ if __name__ == '__main__':
     parser = ArgumentParser(
         description=f"""
             Examples:
-            python -m adg.api -e domain-mapper sample-domains.txt -k "{AdgApi.DEMO_KEY}"
-            python -m adg.api -e merchant-mapper sample-merchants.txt -k "{AdgApi.DEMO_KEY}"
+            python -m altdg.api -e domain-mapper sample-domains.txt -k "{AltdgAPI.DEMO_KEY}"
+            python -m altdg.api -e merchant-mapper sample-merchants.txt -k "{AltdgAPI.DEMO_KEY}"
         """,
         formatter_class=RawDescriptionHelpFormatter
     )
-    # ---- AdgApi args ----
+    # ---- AltdgAPI args ----
     parser.add_argument(
         '-e', '--endpoint',
         help='Type of mapper',
@@ -382,14 +381,14 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '-k', '--key',
-        help='ADG API application key',
-        default=AdgApi.DEMO_KEY,
+        help='AltDG API application key',
+        default=AltdgAPI.DEMO_KEY,
         dest='api_key',
     )
     parser.add_argument(
         '-n', '--num-threads',
-        help=f'Number of threads. Max: {AdgApi.MAX_NUM_THREADS}',
-        default=AdgApi.DEFAULT_NUM_THREADS,
+        help=f'Number of threads. Max: {AltdgAPI.MAX_NUM_THREADS}',
+        default=AltdgAPI.DEFAULT_NUM_THREADS,
         type=positive_integer,
         dest='num_threads',
     )
@@ -397,7 +396,7 @@ if __name__ == '__main__':
         '-r', '--num-retries',
         help=f'Number of retries if request returns 5xx error.'
              f'Delay between retries increments after each unsuccessful attempt.',
-        default=AdgApi.DEFAULT_NUM_RETRIES,
+        default=AltdgAPI.DEFAULT_NUM_RETRIES,
         type=positive_integer,
         dest='num_retries',
     )
@@ -454,7 +453,7 @@ if __name__ == '__main__':
 |     | |  _| -_|  _|   | .'|  _| | | | -_|  |  |  | .'|  _| .'|  |  |  |  _| . | | | . |
 |__|__|_|_| |___|_| |_|_|__,|_| |_|\_/|___|  |____/|__,|_| |__,|  |_____|_| |___|___|  _|
                                                                                     |_|
-                                    {AdgApi.SUPPORT_EMAIL}
+                                    {AltdgAPI.SUPPORT_EMAIL}
     """)
 
     logging.basicConfig(level=args.log_level, format='%(asctime)s %(levelname)-8s %(message)s')
@@ -471,7 +470,7 @@ if __name__ == '__main__':
     if args.hint:
         logger.info(f'Using type hint: {args.hint}')
 
-    AdgApi(**{
+    AltdgAPI(**{
         arg: value for arg, value in vars(args).items()
         if arg in ['endpoint', 'api_key', 'num_threads', 'num_retries']
     }).process_file(**{
