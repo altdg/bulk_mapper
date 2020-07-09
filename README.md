@@ -1,11 +1,11 @@
-# ADG API Python Tools
-Command-line tool with methods to consume the [ADG API](https://developer.altdg.com) in bulk.
+# AltDG API Python Tools
+Command-line tool with methods to consume the [AltDG API](https://developer.altdg.com) in bulk.
 
 © [Alternative Data Group](https://www.altdg.com/). All rights reserved.
 
 ## Contents
 
-- [ADG API Python Tools](#adg-api-python-tools)
+- [AltDG API Python Tools](#AltDG-api-python-tools)
   - [Contents](#contents)
   - [Requirements](#requirements)
   - [Installation](#installation)
@@ -36,16 +36,16 @@ Run the following commands in your shell:
 pip install git+https://github.com/altdg/bulk_mapper.git
 
 # if you want to get samples for testing, clone the repo
-git clone https://github.com/altdg/bulk_mapper.git adg
-cd adg
+git clone https://github.com/altdg/bulk_mapper.git AltDG
+cd AltDG
 ```
 
 Now everything is ready to run the tool.
 
 ## Authorization
 
-To use this tool you must have a valid app key to the [ADG API](https://developer.altdg.com).
-Methods are available depending on you account type with ADG.
+To use this tool you must have a valid app key to the [AltDG API](https://developer.altdg.com).
+Methods are available depending on you account type with AltDG.
 
 ## Free tier key
 
@@ -112,7 +112,7 @@ A CSV output file will be created automatically with the same path as the input 
 Arguments:
 
 * `-e <endpoint>` `--endpoint` Type of mapper. Choices are "merchant-mapper", "domain-mapper" and "product-mapper".
-* `-k <key>` `--key` ADG API application key.
+* `-k <key>` `--key` AltDG API application key.
 * `-o <filename>` `--out` Output file path. If not provided, the input file name is used with the ".csv" extension, prepended with the date and time.
 * `-F` `--force` When providing a specific out_file, some results may already exist in that file for an input.
                  Use this option to force re-process results that are already in that output file, otherwise existing
@@ -133,13 +133,13 @@ pip install -r requirements.txt
 
 ### Usage as library
 
-You may use `AdgApi` class from your python program:
+You may use `AltdgApi` class from your python program:
 
 ```python
-from altdg.api import AdgApi
+from altdg.api import AltdgAPI
 
 # initialize Mapper class with your key
-mapper = AdgApi('domain-mapper', api_key='f816b9125492069f7f2e3b1cc60659f0')
+mapper = AltdgAPI('domain-mapper', api_key='f816b9125492069f7f2e3b1cc60659f0')
 
 # single query
 print(mapper.query('abc.com'))
