@@ -13,19 +13,19 @@ Help: python -m adg.api -h
 import argparse
 import csv
 import datetime
-import json
 import logging
 import os
 import sys
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from concurrent.futures.thread import ThreadPoolExecutor
+from copy import copy
 from operator import itemgetter
 from random import randrange
 from time import sleep
+from typing import Optional, Iterator, Iterable, Any, Union, Generator, List
 
 import requests
 from chardet import UniversalDetector
-from typing import Optional, Iterator, Iterable, Any
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,25 @@ def get_or_default(lst: list, idx: int, default: Any) -> Any:
         return lst[idx]
     except IndexError:
         return default
+
+
+class ChunkedDictReader(csv.DictReader):
+    def read(self, chunk_size: int, offset: int = 0) -> Generator[List[dict], None, None]:
+        assert chunk_size >= 1, f'Wrong chunk size: {chunk_size}'
+
+        chunk = []
+        for i, row in enumerate(self):
+            if i < offset:
+                continue
+
+            chunk.append(row)
+            if len(chunk) >= chunk_size:
+                yield chunk
+                chunk = []
+
+        else:
+            if chunk:
+                yield chunk
 
 
 class AdgApi:
@@ -71,6 +90,7 @@ class AdgApi:
     CSV_FIELDS = {
         # CSV file field: API output mapping function
         'Original Input': itemgetter('Original Input'),
+        'Type Hint': itemgetter('Type Hint'),
         'Company Name': itemgetter('Company Name'),
         'Alias 1': lambda result: get_or_default(result['Aliases'], 0, ''),
         'Alias 2': lambda result: get_or_default(result['Aliases'], 1, ''),
@@ -132,7 +152,7 @@ class AdgApi:
 
         return inp
 
-    def query(self, value: str, hint: Optional[str] = None, cleanup: bool = True) -> dict:
+    def query(self, value: str, hint: Optional[str] = None, clean: bool = True) -> dict:
         """
         Make a single request to ADG API.
 
@@ -147,16 +167,25 @@ class AdgApi:
                 ... <additional fields, refer to ADG API docs> ...
             }
         """
+        if isinstance(value, tuple):
+            assert len(value) == 2, f'Only (input, hint) tuples are allowed as value, but received {value}'
+            if value[1]:
+                hint = value[1]
+
+            value = value[0]
+
         if not value:
-            raise ValueError(f'Empty input: {value}')
+            return {}
 
-        payload = json.dumps([self.prepare_input(value)])
+        logger.debug(f'Running value "{value}"' + (f' with hint "{hint}"' if hint else ''))
 
-        headers = self.HEADERS
+        payload = [self.prepare_input(value)]
+
+        headers = copy(self.HEADERS)
         if hint:
             headers['X-Type-Hint'] = hint
 
-        headers['X-Clean-Input'] = cleanup
+        headers['X-Clean-Input'] = str(clean)
 
         for n_attempt in range(1, self.num_retries+1):
             if n_attempt > 1:
@@ -165,12 +194,14 @@ class AdgApi:
             try:
                 response = requests.post(
                     f'{self.API_URL}/{self.endpoint}?X_User_Key={self.api_key}',
-                    data=payload,
+                    json=payload,
                     headers=headers,
                     timeout=self.RESPONSE_TIMEOUT,
                 )
                 response.raise_for_status()
-                return response.json()[0]
+                result = response.json()[0]
+                result['Type Hint'] = hint  # TODO: modify API
+                return result
 
             except Exception as exc:
                 logger.debug(f'Error when mapping {payload}: {exc}')
@@ -190,24 +221,22 @@ class AdgApi:
                        f'if this problem persists.')
         raise
 
-    def bulk_query(self, values: Iterable[str], hint: Optional[str] = None,
-                   cleanup: bool = True) -> Iterator[dict]:
+    def bulk_query(self, values: Iterable[Union[str, tuple]], hint: Optional[str] = None,
+                   clean: bool = True) -> Iterator[dict]:
         """
         Processes `values` in bulk using multithreading.
 
         Args:
-            values: collection of strings to map
+            values: collection of items to map; item may be a simple string input or (input, hint) tuple
             hint: any string which may help identifying input type ("company", "agriculture", "brand" etc)
-            cleanup: whether to clean values
+            clean: whether to clean values
 
         Yields:
             dict of mapped info (see `query` method)
 
         """
         yield from ThreadPoolExecutor(max_workers=self.num_threads).map(
-            lambda value: self.query(value, hint=hint, cleanup=cleanup),
-            filter(None, values)  # remove empty inputs
-        )
+            lambda value: self.query(value, hint, clean), values)
 
     @staticmethod
     def detect_encoding(file_path: str) -> str:
@@ -231,12 +260,12 @@ class AdgApi:
             self,
             input_file_path: str,
             input_file_encoding: Optional[str] = None,
-            input_file_chunk_size: int = 1024 * 100,
+            input_file_chunk_size: int = 16,
             output_file_path: Optional[str] = None,
             output_file_encoding: Optional[str] = None,
             force_reprocess: bool = False,
             hint: Optional[str] = None,
-            cleanup: bool = True,
+            clean: bool = True,
     ):
         """
         Runs input file (one input per row, TXT or CSV) through ADG Mapping API and produces
@@ -245,13 +274,13 @@ class AdgApi:
         Args:
             input_file_path: path to input file
             input_file_encoding: encoding of input file
-            input_file_chunk_size: how many bytes read at once from input file
+            input_file_chunk_size: how many rows read at once from input file
             output_file_path: path to output file; if empty, input file name + current date will be used
             output_file_encoding: encoding of output file (by default 'utf-8-sih' on Windows, 'utf-8'
                 on other platforms)
             force_reprocess: whether to re-process already processed rows
             hint: optional value which may help mapping inputs (i.e. "medical", "bank", "agriculture" etc)
-            cleanup: whether to clean inputs
+            clean: whether to clean inputs
         """
         logger.debug(f'Starting processing "{input_file_path}"')
 
@@ -269,20 +298,15 @@ class AdgApi:
             os.makedirs(out_dir, exist_ok=True)
         logger.debug(f'Output to "{output_file_path}"')
 
-        # ---- retrieve list of already processed inputs ----
-        processed_inputs = set()
-
+        # ---- retrieve indexes of already processed inputs ----
+        num_processed = 0
         if not force_reprocess and os.path.isfile(output_file_path):
             with open(output_file_path, 'r', encoding=output_file_encoding) as out_file:
-                csv_reader = csv.reader(out_file, delimiter=',')
-                for i, row in enumerate(csv_reader):
-                    if i == 0 or not row:  # skip header and empty rows
-                        continue
+                reader = csv.DictReader(out_file, delimiter=',')
+                num_processed = sum(1 for _ in reader)
 
-                    processed_inputs.add(row[0])
-
-        if processed_inputs:
-            logger.debug(f'Found {len(processed_inputs)} already processed inputs, skipping')
+        if num_processed:
+            logger.debug(f'Found {num_processed} already processed inputs, skipping')
 
         # ---- process inputs ----
         input_file_encoding = input_file_encoding or self.detect_encoding(input_file_path)
@@ -292,6 +316,12 @@ class AdgApi:
         with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, \
                 open(output_file_path, 'w' if force_reprocess else 'a',
                      encoding=output_file_encoding, newline='') as out_file:
+
+            reader = ChunkedDictReader(
+                in_file,
+                fieldnames=['input', 'hint'],
+            )
+
             writer = csv.DictWriter(
                 out_file,
                 fieldnames=self.CSV_FIELDS.keys(),
@@ -301,28 +331,23 @@ class AdgApi:
                 quoting=csv.QUOTE_MINIMAL,
             )
 
-            if not processed_inputs:
+            if not num_processed:
                 writer.writeheader()
 
             # just in case the file is big, we read it by chunks
-            while True:
-                chunk = {inp.rstrip('\n') for inp in in_file.readlines(input_file_chunk_size)}
-                if not chunk:
-                    break
-
+            for chunk in reader.read(chunk_size=input_file_chunk_size, offset=num_processed):
                 logger.debug(f'Processing inputs chunk of size {len(chunk)}')
+                queue = [(value['input'], value['hint']) for value in chunk]
 
-                # remove aready processed rows
-                queue = chunk - processed_inputs
-
-                for result in self.bulk_query(queue, hint=hint, cleanup=cleanup):
+                for result in self.bulk_query(queue, hint=hint, clean=clean):
                     logger.info(f'Writing result '
-                                f'{ {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:2]} }')
-                    writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()})
+                                f'{ {k: v for k, v in result.items() if k in list(self.CSV_FIELDS)[:3]} }')
+                    writer.writerow({field: mapper(result) for field, mapper in self.CSV_FIELDS.items()}
+                                    if result else {})
                     out_file.flush()
 
-                processed_inputs = processed_inputs | queue
-                logger.debug(f'Processed total {len(processed_inputs)} unique inputs')
+                num_processed += len(chunk)
+                logger.debug(f'Processed {num_processed} inputs so far')
 
             logger.debug('Processing complete')
 
@@ -409,13 +434,13 @@ if __name__ == '__main__':
         dest='hint',
     )
     parser.add_argument(
-        '-c', '--cleanup',
+        '-c', '--clean',
         choices=['high', 'low'],
-        help='How much input cleanup should be done. If your inputs contain a lot of noize '
+        help='How much input cleaning should be done. If your inputs contain a lot of noize '
              '(meaningless information), set this to "high"; if your inputs are rather good '
              '(for example, contain exact titles), set this option to "low".',
         default='high',
-        dest='cleanup',
+        dest='clean',
     )
     parser.add_argument(
         help='Path to input file',
@@ -443,13 +468,16 @@ if __name__ == '__main__':
         logger.error(f'Input file does not exist: {args.input_file_path}')
         sys.exit()
 
+    if args.hint:
+        logger.info(f'Using type hint: {args.hint}')
+
     AdgApi(**{
         arg: value for arg, value in vars(args).items()
         if arg in ['endpoint', 'api_key', 'num_threads', 'num_retries']
     }).process_file(**{
         arg: value for arg, value in vars(args).items() if arg in [
             'input_file_path', 'input_file_encoding', 'output_file_path', 'force_reprocess',
-            'hint', 'cleanup',
+            'hint', 'clean',
         ]
     })
 
