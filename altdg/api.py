@@ -90,23 +90,23 @@ class AltdgAPI:
         # CSV file field: API output mapping function
         'Original Input': itemgetter('Original Input'),
         'Type Hint': itemgetter('Type Hint'),
-        'Company Name': itemgetter('Company Name'),
-        'Alias 1': lambda result: get_or_default(result['Aliases'], 0, ''),
-        'Alias 2': lambda result: get_or_default(result['Aliases'], 1, ''),
-        'Alias 3': lambda result: get_or_default(result['Aliases'], 2, ''),
-        'All Aliases': lambda result: '; '.join(result['Aliases']),
-        'Confidence Level': itemgetter('Confidence Level'),
-        'Confidence': itemgetter('Confidence'),
-        'Ticker': itemgetter('Ticker'),
-        'Exchange': itemgetter('Exchange'),
-        'Majority Owner': itemgetter('Majority Owner'),
-        'FIGI': itemgetter('FIGI'),
-        'Related Entity 1 Name': lambda result: get_or_default(result['Related Entities'], 0, ''),
-        'Related Entity 2 Name': lambda result: get_or_default(result['Related Entities'], 1, ''),
-        'Related Entity 3 Name': lambda result: get_or_default(result['Related Entities'], 2, ''),
-        'All Related Entities': lambda result: '; '.join(result['Related Entities']),
-        'Alternative Company Matches': lambda result: ': '.join(result['Alternative Company Matches']),
-        'Websites': lambda result: '; '.join(result['Websites']),
+        'Company Name': lambda result: result.get('Company Name', ''),
+        'Alias 1': lambda result: get_or_default(result.get('Aliases', []), 0, ''),
+        'Alias 2': lambda result: get_or_default(result.get('Aliases', []), 1, ''),
+        'Alias 3': lambda result: get_or_default(result.get('Aliases', []), 2, ''),
+        'All Aliases': lambda result: '; '.join(result.get('Aliases', [])),
+        'Confidence Level': lambda result: result.get('Confidence Level', ''),
+        'Confidence': lambda result: result.get('Confidence', ''),
+        'Ticker': lambda result: result.get('Ticker', ''),
+        'Exchange': lambda result: result.get('Exchange', ''),
+        'Majority Owner': lambda result: result.get('Majority Owner', ''),
+        'FIGI': lambda result: result.get('FIGI', ''),
+        'Related Entity 1 Name': lambda result: get_or_default(result.get('Related Entities', []), 0, ''),
+        'Related Entity 2 Name': lambda result: get_or_default(result.get('Related Entities', []), 1, ''),
+        'Related Entity 3 Name': lambda result: get_or_default(result.get('Related Entities', []), 2, ''),
+        'All Related Entities': lambda result: '; '.join(result.get('Related Entities', [])),
+        'Alternative Company Matches': lambda result: ': '.join(result.get('Alternative Company Matches', [])),
+        'Websites': lambda result: '; '.join(result.get('Websites', [])),
         'Date & Time': lambda result: datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S'),
     }
 
@@ -158,6 +158,7 @@ class AltdgAPI:
         Args:
             value: text string to map ("amzn", "PURCHASE DEBIT CARD XXXX-2211 ETSY.COM", ...)
             hint: any string which may help identifying input type ("company", "agriculture", "brand" etc)
+            clean: whether to "clean" input string, i.e. do a preprocessing to remove garbage substrings
 
         Returns:
             dict {
@@ -218,7 +219,11 @@ class AltdgAPI:
 
         logger.warning(f'Could not process "{value}". Please contact {self.SUPPORT_EMAIL} for help '
                        f'if this problem persists.')
-        raise
+
+        return {
+            'Original Input': value,
+            'Type Hint': hint,
+        }
 
     def bulk_query(self, values: Iterable[Union[str, tuple]], hint: Optional[str] = None,
                    clean: bool = True) -> Iterator[dict]:
