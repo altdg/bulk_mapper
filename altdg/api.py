@@ -280,7 +280,7 @@ class AltdgAPI:
             input_file_encoding: encoding of input file
             input_file_chunk_size: how many rows read at once from input file
             output_file_path: path to output file; if empty, input file name + current date will be used
-            output_file_encoding: encoding of output file (by default 'utf-8-sih' on Windows, 'utf-8'
+            output_file_encoding: encoding of output file (by default 'utf-8-sig' on Windows, 'utf-8'
                 on other platforms)
             force_reprocess: whether to re-process already processed rows
             hint: optional value which may help mapping inputs (i.e. "medical", "bank", "agriculture" etc)
@@ -302,6 +302,12 @@ class AltdgAPI:
             os.makedirs(out_dir, exist_ok=True)
         logger.debug(f'Output to "{output_file_path}"')
 
+        # ---- detect encodings ----
+        input_file_encoding = input_file_encoding or self.detect_encoding(input_file_path)
+        if not output_file_encoding:
+            output_file_encoding = 'utf-8-sig' if os.name == 'nt' else 'utf-8'
+        logger.debug(f'Output file encoding: {output_file_encoding}')
+
         # ---- retrieve indexes of already processed inputs ----
         num_processed = 0
         if not force_reprocess and os.path.isfile(output_file_path):
@@ -313,10 +319,6 @@ class AltdgAPI:
             logger.debug(f'Found {num_processed} already processed inputs, skipping')
 
         # ---- process inputs ----
-        input_file_encoding = input_file_encoding or self.detect_encoding(input_file_path)
-        if not output_file_encoding:
-            output_file_encoding = 'utf-8-sig' if os.name == 'nt' else 'utf-8'
-
         with open(input_file_path, 'r', encoding=input_file_encoding) as in_file, \
                 open(output_file_path, 'w' if force_reprocess else 'a',
                      encoding=output_file_encoding, newline='') as out_file:
