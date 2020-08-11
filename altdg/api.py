@@ -7,7 +7,7 @@ Module for running input file through AltDG's mapper API and writing results to 
 Requires python >= 3.6.
 Install dependencies with 'pip install requirements.txt'.
 
-Help: python -m altdg.api -h
+Help: altdg -h
 """
 import argparse
 import csv
@@ -370,12 +370,12 @@ def positive_integer(value: str) -> int:
     return value
 
 
-if __name__ == '__main__':
+def main():
     parser = ArgumentParser(
         description=f"""
             Examples:
-            python -m altdg.api -e domain-mapper sample-domains.txt -k "{AltdgAPI.DEMO_KEY}"
-            python -m altdg.api -e merchant-mapper sample-merchants.txt -k "{AltdgAPI.DEMO_KEY}"
+            altdg -e domain-mapper sample-domains.txt -k "{AltdgAPI.DEMO_KEY}"
+            altdg -e merchant-mapper sample-merchants.txt -k "{AltdgAPI.DEMO_KEY}"
         """,
         formatter_class=RawDescriptionHelpFormatter
     )
@@ -490,3 +490,7 @@ if __name__ == '__main__':
     end_time = datetime.datetime.now()
     logger.info(f'All done')
     logger.info(f'Elapsed: {(end_time-start_time).seconds:.0f}s')
+
+
+if __name__ == '__main__':
+    main()

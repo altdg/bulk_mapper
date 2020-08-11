@@ -10,7 +10,7 @@ setup(
     name='altdg',
     description='Utility libraries from Alternative Data Group',
     url='https://github.com/altdg/bulk_mapper',
-    version='1.0.3',
+    version='1.0.4',
     packages=find_packages(),
     include_package_data=True,
     install_requires=['requests', 'chardet'],
@@ -18,7 +18,9 @@ setup(
     license='MIT',
     long_description=README,
     long_description_content_type="text/markdown",
-
+    entry_points={
+        'console_scripts': ['altdg=altdg.api:main'],
+    },
     keywords='adg alternative data group',
     classifiers=[
         'Environment :: Web Environment',

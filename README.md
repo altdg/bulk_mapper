@@ -40,8 +40,7 @@ pip install git+https://github.com/altdg/bulk_mapper.git
 
 # ... or if you want to get samples for testing, clone the repo
 git clone https://github.com/altdg/bulk_mapper.git altdg
-cd altdg
-pip install -r requirements.txt
+pip install -e altdg
 ```
 
 Now everything is ready to run the tool.
@@ -64,7 +63,7 @@ A preferred way to run the tool is to load it as module with the `python` comman
 Run the tool with `--help` flag to display command's usage:
 
 ```sh
-python -m altdg.api --help
+altdg --help
 ```
 
 ### Domain mapper
@@ -75,7 +74,7 @@ Maps domain names from given text to structured company information.
 This will run all the domains in the provided text file (one per line expected):
 
 ```sh
-python -m altdg.api -e domain-mapper sample-domains.txt -k "f816b9125492069f7f2e3b1cc60659f0"
+altdg -e domain-mapper sample-domains.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 
 Sign up at https://developer.altdg.com/ to get a non-trial key.
@@ -90,7 +89,7 @@ Maps strings from transactional purchase text (e.g. credit card transactions) to
 > More details in https://developer.altdg.com/docs#merchant-mapper
 
 ```sh
-python -m altdg.api -e merchant-mapper sample-merchants.txt -k "f816b9125492069f7f2e3b1cc60659f0"
+altdg -e merchant-mapper sample-merchants.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 Sign up at https://developer.altdg.com/ to get a non-trial key.
 
@@ -104,7 +103,7 @@ Maps strings from product related text (e.g. inventory) to structured company in
 > More details in https://developer.altdg.com/docs#product-mapper
 
 ```sh
-python -m altdg.api -e product-mapper sample-products.txt -k "f816b9125492069f7f2e3b1cc60659f0"
+altdg -e product-mapper sample-products.txt -k "f816b9125492069f7f2e3b1cc60659f0"
 ```
 Sign up at https://developer.altdg.com/ to get a non-trial key.
 
