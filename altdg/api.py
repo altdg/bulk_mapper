@@ -305,7 +305,10 @@ class AltdgAPI:
         # ---- detect encodings ----
         input_file_encoding = input_file_encoding or self.detect_encoding(input_file_path)
         if not output_file_encoding:
-            output_file_encoding = 'utf-8-sig' if os.name == 'nt' else 'utf-8'
+            if os.path.isfile(output_file_path):  # if output file already exists, detect encoding from it
+                output_file_encoding = self.detect_encoding(output_file_path)
+            else:
+                output_file_encoding = 'utf-8-sig' if os.name == 'nt' else 'utf-8'
         logger.debug(f'Output file encoding: {output_file_encoding}')
 
         # ---- retrieve indexes of already processed inputs ----
