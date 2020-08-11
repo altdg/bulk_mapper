@@ -10,7 +10,7 @@ setup(
     name='altdg',
     description='Utility libraries from Alternative Data Group',
     url='https://github.com/altdg/bulk_mapper',
-    version='1.0.4',
+    version='1.0.5',
     packages=find_packages(),
     include_package_data=True,
     install_requires=['requests', 'chardet'],
