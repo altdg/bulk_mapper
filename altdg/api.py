@@ -82,8 +82,8 @@ class AltdgAPI:
 
     # ---- failure handling ----
     RESPONSE_TIMEOUT = 30  # max time to wait for each query to complete
-    DEFAULT_NUM_RETRIES = 3
-    RETRY_INTERVAL = 15  # if attempt 1 failed, wait 0-15s, if attempt 2 failed - wait 15-30s etc
+    DEFAULT_NUM_RETRIES = 2
+    RETRY_INTERVAL = 60  # if attempt 1 failed, wait 0-60s, if attempt 2 failed - wait 60-120s etc
 
     # ---- csv file fields mappings  ----
     CSV_FIELDS = {
