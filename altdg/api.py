@@ -77,8 +77,8 @@ class AltdgAPI:
     MAX_INPUT_LENGTH = 127
 
     # ---- parallel settings ----
-    DEFAULT_NUM_THREADS = 4
-    MAX_NUM_THREADS = 8
+    DEFAULT_NUM_THREADS = 2
+    MAX_NUM_THREADS = 4
 
     # ---- failure handling ----
     RESPONSE_TIMEOUT = 30  # max time to wait for each query to complete
