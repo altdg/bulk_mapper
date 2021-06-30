@@ -29,6 +29,25 @@ from chardet import UniversalDetector
 logger = logging.getLogger(__name__)
 
 
+def dummy_request(user_key):
+    url = f"https://api-2445582026130.production.gw.apicast.io/merchant-mapper?X_user_key={user_key}"
+    payload = ["dummy request"]
+    headers = {}
+    _ = requests.request("POST", url, headers=headers, json=payload, timeout=120)
+
+
+def str2bool(value: str) -> bool:
+    """ Parses string value and converts it to boolean """
+    if isinstance(value, bool):
+        return value
+    elif value.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif value.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected')
+
+
 def chunks(collection: Iterable, n: int):
     """ Yield successive n-sized chunks from collection """
     collection = list(collection)
@@ -101,6 +120,7 @@ class AltdgAPI:
         'Exchange': lambda result: result.get('Exchange', ''),
         'Majority Owner': lambda result: result.get('Majority Owner', ''),
         'FIGI': lambda result: result.get('FIGI', ''),
+        'DUNS': lambda result: result.get('DUNS'),
         'Related Entity 1 Name': lambda result: get_or_default(result.get('Related Entities', []), 0, ''),
         'Related Entity 2 Name': lambda result: get_or_default(result.get('Related Entities', []), 1, ''),
         'Related Entity 3 Name': lambda result: get_or_default(result.get('Related Entities', []), 2, ''),
@@ -150,6 +170,9 @@ class AltdgAPI:
             logger.warning(f'Input too long, truncated input to {self.MAX_INPUT_LENGTH} chars: "{inp}"')
 
         return inp
+    
+    def pre_request(self):
+        pass
 
     def query(self, value: str, hint: Optional[str] = None, clean: bool = True) -> dict:
         """
@@ -183,7 +206,7 @@ class AltdgAPI:
 
         headers = copy(self.HEADERS)
         if hint:
-            headers['X-Type-Hint'] = hint
+            headers['X-Type-Hint'] = hint.strip()
 
         headers['X-Clean-Input'] = str(clean)
 
@@ -192,6 +215,7 @@ class AltdgAPI:
                 logger.debug(f'Retrying (attempt #{n_attempt}): {value}')
 
             try:
+                self.pre_request()
                 response = requests.post(
                     f'{self.API_URL}/{self.endpoint}?X_User_Key={self.api_key}',
                     json=payload,
@@ -361,6 +385,68 @@ class AltdgAPI:
             logger.debug('Processing complete')
 
 
+class AltdgAPINo3Scale(AltdgAPI):
+    API_URL = "http://adg-api.us-east-1.elasticbeanstalk.com"
+    DEMO_KEY = 'f816b9125492069f7f2e3b1cc60659f0'
+    DEFAULT_NUM_THREADS = 2
+    MAX_NUM_THREADS = 4
+
+    RESPONSE_TIMEOUT = 300  # max time to wait for each query to complete
+    DEFAULT_NUM_RETRIES = 3
+    RETRY_INTERVAL = 15  # if attempt 1 failed, wait 0-15s, if attempt 2 failed - wait 15-30s etc
+
+    HEADERS = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'https://github.com/altdg/bulk_mapper',
+    }
+
+    CSV_FIELDS = {
+        # CSV file field: API output mapping function
+        'Original Input': itemgetter('Original Input'),
+        'Type Hint': itemgetter('Type Hint'),
+        'Company Name': lambda result: result.get('Company Name', ''),
+        'Alias 1': lambda result: get_or_default(result.get('Aliases', []), 0, ''),
+        'Alias 2': lambda result: get_or_default(result.get('Aliases', []), 1, ''),
+        'Alias 3': lambda result: get_or_default(result.get('Aliases', []), 2, ''),
+        'All Aliases': lambda result: '; '.join(result.get('Aliases', [])),
+        'Confidence Level': lambda result: result.get('Confidence Level', ''),
+        'Confidence': lambda result: result.get('Confidence', ''),
+        'Ticker': lambda result: result.get('Ticker', ''),
+        'Exchange': lambda result: result.get('Exchange', ''),
+        'Majority Owner': lambda result: result.get('Majority Owner', ''),
+        'FIGI': lambda result: result.get('FIGI', ''),
+        'DUNS': lambda result: result.get('DUNS'),
+        'Related Entity 1 Name': lambda result: get_or_default(result.get('Related Entities', []), 0, ''),
+        'Related Entity 2 Name': lambda result: get_or_default(result.get('Related Entities', []), 1, ''),
+        'Related Entity 3 Name': lambda result: get_or_default(result.get('Related Entities', []), 2, ''),
+        'All Related Entities': lambda result: '; '.join(result.get('Related Entities', [])),
+        'Alternative Company Matches': lambda result: ': '.join(result.get('Alternative Company Matches', [])),
+        'Websites': lambda result: '; '.join(result.get('Websites', [])),
+        'Date & Time': lambda result: datetime.datetime.now().strftime('%Y-%m-%d %H:%I:%S'),
+        'Snapshot': lambda result: result,
+    }
+
+    def __init__(
+        self,
+        endpoint: str,
+        shared_secret: str,
+        api_key: str = DEMO_KEY,
+        num_threads: int = DEFAULT_NUM_THREADS,
+        num_retries: int = DEFAULT_NUM_RETRIES,
+    ):
+        super().__init__(
+            endpoint,
+            api_key=api_key,
+            num_threads=num_threads,
+            num_retries=num_retries,
+        )
+        self.shared_secret = shared_secret
+        self.HEADERS["X-3scale-proxy-secret-token"] = self.shared_secret
+
+    def pre_request(self):
+        dummy_request(self.api_key)
+
 def positive_integer(value: str) -> int:
     try:
         value = int(value)
@@ -386,7 +472,7 @@ def main():
     parser.add_argument(
         '-e', '--endpoint',
         help='Type of mapper',
-        default='merchant-mapper',
+        default='merchant-mapper-debug',
         dest='endpoint',
     )
     parser.add_argument(
@@ -452,6 +538,16 @@ def main():
         dest='clean',
     )
     parser.add_argument(
+        '-n3s', '--no-3scale',
+        help='Use ALTDG API without 3scale',
+        nargs='?', const=True, default=False,
+        type=str2bool
+    )
+    parser.add_argument(
+        '-s', '--shared-secret',
+        help='AltDG API shared secret key'
+    )
+    parser.add_argument(
         help='Path to input file',
         dest='input_file_path',
     )
@@ -480,10 +576,21 @@ def main():
     if args.hint:
         logger.info(f'Using type hint: {args.hint}')
 
-    AltdgAPI(**{
+    altdg_api = AltdgAPI(**{
         arg: value for arg, value in vars(args).items()
         if arg in ['endpoint', 'api_key', 'num_threads', 'num_retries']
-    }).process_file(**{
+    })
+
+    if args.no_3scale:
+        if not args.shared_secret:
+            logger.error("Can't use no-3scale mode without shared secret")
+            sys.exit()
+        altdg_api = AltdgAPINo3Scale(**{
+        arg: value for arg, value in vars(args).items()
+        if arg in ['endpoint', 'api_key', 'num_threads', 'num_retries', 'shared_secret']
+    })
+    
+    altdg_api.process_file(**{
         arg: value for arg, value in vars(args).items() if arg in [
             'input_file_path', 'input_file_encoding', 'output_file_path', 'force_reprocess',
             'hint', 'clean',
