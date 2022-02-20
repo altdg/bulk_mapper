@@ -101,6 +101,7 @@ class AltdgAPI:
         'Exchange': lambda result: result.get('Exchange', ''),
         'Majority Owner': lambda result: result.get('Majority Owner', ''),
         'FIGI': lambda result: result.get('FIGI', ''),
+        'DUNS': lambda result: result.get('DUNS', ''),
         'Related Entity 1 Name': lambda result: get_or_default(result.get('Related Entities', []), 0, ''),
         'Related Entity 2 Name': lambda result: get_or_default(result.get('Related Entities', []), 1, ''),
         'Related Entity 3 Name': lambda result: get_or_default(result.get('Related Entities', []), 2, ''),
